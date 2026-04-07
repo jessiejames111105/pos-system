@@ -31,7 +31,7 @@ const Transactions = () => {
         name: i.name,
         quantity: i.quantity,
         price: Number(i.price || 0),
-        details: '',
+        details: i.size_name ? `Size: ${i.size_name}` : '',
         addons: (i.addons || []).map(a => ({
           name: a.name,
           quantity: Number(a.quantity || 0),

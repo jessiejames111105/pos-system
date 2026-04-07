@@ -6,6 +6,7 @@ import {
   Layers, 
   Settings2, 
   AlertTriangle,
+  Filter,
   X,
   Save
 } from 'lucide-react';
@@ -18,30 +19,30 @@ const ProductManagement = () => {
     products,
     ingredients,
     addons,
-    productIngredients,
+    productSizes,
+    productSizeIngredients,
     productAddons,
     createCategory,
     deleteCategory,
     createProduct,
     updateProduct,
     deleteProduct,
-    setProductBOM,
+    setProductSizesWithBOM,
     setProductAddonsForProduct
   } = useApp();
   const [activeTab, setActiveTab] = useState('products'); // products, categories
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
-  const [bomLines, setBomLines] = useState([]);
+  const [sizes, setSizes] = useState([{ name: 'Standard', price: '', bomLines: [] }]);
   const [selectedAddonIds, setSelectedAddonIds] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [categoryFilter, setCategoryFilter] = useState('all');
 
   // Form state for a new product
   const initialProductState = {
     name: '',
-    category: '',
-    price: '',
-    barcode: ''
+    category: ''
   };
 
   const [productForm, setProductForm] = useState(initialProductState);
@@ -49,7 +50,7 @@ const ProductManagement = () => {
   const handleAddProduct = () => {
     setEditingProduct(null);
     setProductForm(initialProductState);
-    setBomLines([]);
+    setSizes([{ name: 'Standard', price: '', bomLines: [] }]);
     setSelectedAddonIds([]);
     setIsModalOpen(true);
   };
@@ -70,19 +71,42 @@ const ProductManagement = () => {
     return categories.map(c => ({ ...c, productCount: counts.get(c.id) || 0 }));
   }, [categories, products]);
 
+  const productsSorted = useMemo(() => {
+    return [...(products || [])].sort((a, b) => {
+      const ad = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const bd = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return bd - ad;
+    });
+  }, [products]);
+
+  const filteredProducts = useMemo(() => {
+    if (categoryFilter === 'all') return productsSorted;
+    const catId = Number(categoryFilter);
+    return productsSorted.filter(p => Number(p.category_id) === catId);
+  }, [productsSorted, categoryFilter]);
+
   const handleEditProduct = (product) => {
     setEditingProduct(product);
     setProductForm({
       ...initialProductState,
       name: product.name || '',
-      category: product.categoryName || '',
-      price: product.price ?? '',
-      barcode: product.barcode ?? ''
+      category: product.categoryName || ''
     });
-    const existingBom = (productIngredients || [])
-      .filter(r => Number(r.product_id) === Number(product.id))
-      .map(r => ({ ingredient_id: r.ingredient_id, quantity: r.quantity }));
-    setBomLines(existingBom);
+    const existingSizes = (productSizes || [])
+      .filter(s => Number(s.product_id) === Number(product.id))
+      .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || String(a.name).localeCompare(String(b.name)));
+    if (existingSizes.length > 0) {
+      setSizes(existingSizes.map(sz => ({
+        id: sz.id,
+        name: sz.name,
+        price: sz.price,
+        bomLines: (productSizeIngredients || [])
+          .filter(r => Number(r.product_size_id) === Number(sz.id))
+          .map(r => ({ ingredient_id: r.ingredient_id, quantity: r.quantity }))
+      })));
+    } else {
+      setSizes([{ name: 'Standard', price: product.price ?? '', bomLines: [] }]);
+    }
     const existingAddonIds = (productAddons || [])
       .filter(r => Number(r.product_id) === Number(product.id))
       .map(r => r.addon_id);
@@ -95,11 +119,14 @@ const ProductManagement = () => {
     setIsSaving(true);
     const categoryName = (productForm.category || '').toString();
     const categoryId = categories.find(c => c.name === categoryName)?.id ?? null;
+    const numericPrices = (sizes || [])
+      .map(s => Number(s.price || 0))
+      .filter(p => Number.isFinite(p) && p >= 0);
+    const computedBasePrice = numericPrices.length > 0 ? Math.min(...numericPrices) : 0;
     const payload = {
       name: productForm.name,
       category_id: categoryId,
-      price: Number(productForm.price || 0),
-      barcode: productForm.barcode || null
+      price: computedBasePrice
     };
     if (!payload.name) {
       setIsSaving(false);
@@ -116,7 +143,7 @@ const ProductManagement = () => {
       }
 
       if (productId) {
-        await setProductBOM(productId, bomLines);
+        await setProductSizesWithBOM(productId, sizes);
         await setProductAddonsForProduct(productId, selectedAddonIds);
       }
 
@@ -205,6 +232,22 @@ const ProductManagement = () => {
           </div>
         ) : (
           <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+            <div className="p-4 border-b border-slate-200 bg-slate-50/50 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-slate-400">
+                <Filter size={16} />
+                <span className="text-[10px] font-bold uppercase tracking-wide">Filter</span>
+              </div>
+              <select
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+                className="px-4 py-2 rounded-xl border border-slate-200 bg-white font-bold text-slate-900 text-sm"
+              >
+                <option value="all">All Categories</option>
+                {categories.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
             <table className="w-full text-left">
               <thead className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-wider">
                 <tr>
@@ -215,7 +258,7 @@ const ProductManagement = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {products.map(product => (
+                {filteredProducts.map(product => (
                   <tr key={product.id} className="hover:bg-slate-50/50 transition-colors group">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
@@ -318,36 +361,6 @@ const ProductManagement = () => {
                         ))}
                       </select>
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold text-slate-700">Barcode (optional)</label>
-                      <input
-                        type="text"
-                        className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all"
-                        value={productForm.barcode}
-                        onChange={(e) => setProductForm({ ...productForm, barcode: e.target.value })}
-                      />
-                    </div>
-                  </div>
-                </section>
-
-                <section className="space-y-4">
-                  <div className="flex items-center gap-2 text-primary-600 font-bold uppercase tracking-wider text-xs">
-                    <Package size={14} />
-                    Pricing
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold text-slate-700">Price (₱)</label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        placeholder="0.00"
-                        className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all"
-                        value={productForm.price ?? ''}
-                        onChange={(e) => setProductForm({ ...productForm, price: e.target.value })}
-                      />
-                    </div>
                   </div>
                 </section>
 
@@ -355,64 +368,131 @@ const ProductManagement = () => {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-primary-600 font-bold uppercase tracking-wider text-xs">
                       <Package size={14} />
-                      BOM (Ingredients)
+                      Sizes & Ingredients
                     </div>
                     <button
                       type="button"
-                      onClick={() => setBomLines(prev => [...prev, { ingredient_id: '', quantity: '' }])}
+                      onClick={() => setSizes(prev => [...prev, { name: '', price: '', bomLines: [] }])}
                       className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center gap-2"
                     >
                       <Plus size={16} />
-                      Add Line
+                      Add Size
                     </button>
                   </div>
 
                   <div className="space-y-3">
-                    {bomLines.map((line, idx) => (
-                      <div key={idx} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
-                        <div className="md:col-span-7">
-                          <select
-                            className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all bg-white"
-                            value={line.ingredient_id}
-                            onChange={(e) => {
-                              const v = e.target.value;
-                              setBomLines(prev => prev.map((x, i) => i === idx ? { ...x, ingredient_id: v } : x));
-                            }}
-                          >
-                            <option value="">Select ingredient</option>
-                            {ingredients.map(ing => (
-                              <option key={ing.id} value={ing.id}>{ing.name}</option>
-                            ))}
-                          </select>
+                    {sizes.map((size, sizeIdx) => (
+                      <div key={sizeIdx} className="rounded-3xl border border-slate-200 bg-white overflow-hidden">
+                        <div className="p-5 bg-slate-50/60 border-b border-slate-200 flex flex-col md:flex-row md:items-center gap-3 justify-between">
+                          <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <input
+                              type="text"
+                              placeholder="Size name (e.g. Small)"
+                              className="w-full rounded-xl border border-slate-200 p-3 text-sm font-bold focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all bg-white"
+                              value={size.name}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setSizes(prev => prev.map((s, i) => i === sizeIdx ? { ...s, name: v } : s));
+                              }}
+                            />
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              placeholder="Price (₱)"
+                              className="w-full rounded-xl border border-slate-200 p-3 text-sm font-bold focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all bg-white"
+                              value={size.price}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setSizes(prev => prev.map((s, i) => i === sizeIdx ? { ...s, price: v } : s));
+                              }}
+                            />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setSizes(prev => prev.map((s, i) => i === sizeIdx ? { ...s, bomLines: [...(s.bomLines || []), { ingredient_id: '', quantity: '' }] } : s))}
+                              className="px-4 py-2 rounded-xl text-xs font-bold bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 transition-all flex items-center gap-2"
+                            >
+                              <Plus size={16} />
+                              Add Ingredient
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSizes(prev => prev.filter((_, i) => i !== sizeIdx))}
+                              className="p-2 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 transition-all"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          </div>
                         </div>
-                        <div className="md:col-span-4">
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.001"
-                            className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all"
-                            placeholder="Qty per product"
-                            value={line.quantity}
-                            onChange={(e) => {
-                              const v = e.target.value;
-                              setBomLines(prev => prev.map((x, i) => i === idx ? { ...x, quantity: v } : x));
-                            }}
-                          />
-                        </div>
-                        <div className="md:col-span-1 flex justify-end">
-                          <button
-                            type="button"
-                            onClick={() => setBomLines(prev => prev.filter((_, i) => i !== idx))}
-                            className="p-3 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 transition-all"
-                          >
-                            <Trash2 size={18} />
-                          </button>
+
+                        <div className="p-5 space-y-3">
+                          {(size.bomLines || []).map((line, idx) => (
+                            <div key={idx} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                              <div className="md:col-span-7">
+                                <select
+                                  className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all bg-white"
+                                  value={line.ingredient_id}
+                                  onChange={(e) => {
+                                    const v = e.target.value;
+                                    setSizes(prev => prev.map((s, i) => {
+                                      if (i !== sizeIdx) return s;
+                                      const nextLines = (s.bomLines || []).map((x, j) => j === idx ? { ...x, ingredient_id: v } : x);
+                                      return { ...s, bomLines: nextLines };
+                                    }));
+                                  }}
+                                >
+                                  <option value="">Select ingredient</option>
+                                  {ingredients.map(ing => (
+                                    <option key={ing.id} value={ing.id}>{ing.name}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div className="md:col-span-4">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.001"
+                                  className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all"
+                                  placeholder="Qty per size"
+                                  value={line.quantity}
+                                  onChange={(e) => {
+                                    const v = e.target.value;
+                                    setSizes(prev => prev.map((s, i) => {
+                                      if (i !== sizeIdx) return s;
+                                      const nextLines = (s.bomLines || []).map((x, j) => j === idx ? { ...x, quantity: v } : x);
+                                      return { ...s, bomLines: nextLines };
+                                    }));
+                                  }}
+                                />
+                              </div>
+                              <div className="md:col-span-1 flex justify-end">
+                                <button
+                                  type="button"
+                                  onClick={() => setSizes(prev => prev.map((s, i) => {
+                                    if (i !== sizeIdx) return s;
+                                    const nextLines = (s.bomLines || []).filter((_, j) => j !== idx);
+                                    return { ...s, bomLines: nextLines };
+                                  }))}
+                                  className="p-3 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 transition-all"
+                                >
+                                  <Trash2 size={18} />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                          {(size.bomLines || []).length === 0 && (
+                            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-slate-500">
+                              No ingredients for this size yet.
+                            </div>
+                          )}
                         </div>
                       </div>
                     ))}
-                    {bomLines.length === 0 && (
+                    {sizes.length === 0 && (
                       <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-slate-500">
-                        No BOM lines yet.
+                        No sizes yet.
                       </div>
                     )}
                   </div>

@@ -27,6 +27,8 @@ export function AppProvider({ children }) {
   const [products, setProducts] = useState([]);
   const [ingredients, setIngredients] = useState([]);
   const [addons, setAddons] = useState([]);
+  const [productSizes, setProductSizes] = useState([]);
+  const [productSizeIngredients, setProductSizeIngredients] = useState([]);
   const [productIngredients, setProductIngredients] = useState([]);
   const [productAddons, setProductAddons] = useState([]);
   const [addonIngredients, setAddonIngredients] = useState([]);
@@ -78,6 +80,33 @@ export function AppProvider({ children }) {
     }
     return map;
   }, [productAddons]);
+
+  const sizeById = useMemo(() => {
+    return new Map((productSizes || []).map(s => [s.id, s]));
+  }, [productSizes]);
+
+  const sizesByProductId = useMemo(() => {
+    const map = new Map();
+    for (const s of productSizes || []) {
+      const list = map.get(s.product_id) || [];
+      list.push(s);
+      map.set(s.product_id, list);
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || String(a.name).localeCompare(String(b.name)));
+    }
+    return map;
+  }, [productSizes]);
+
+  const sizeIngredientsBySizeId = useMemo(() => {
+    const map = new Map();
+    for (const row of productSizeIngredients || []) {
+      const list = map.get(row.product_size_id) || [];
+      list.push(row);
+      map.set(row.product_size_id, list);
+    }
+    return map;
+  }, [productSizeIngredients]);
 
   const addNotification = (message, type = 'info') => {
     const id = Date.now();
@@ -171,6 +200,39 @@ export function AppProvider({ children }) {
     return mapped;
   };
 
+  const fetchProductSizes = async () => {
+    if (!isSupabaseConfigured) return [];
+    const { data, error } = await supabase
+      .from('product_sizes')
+      .select('id,product_id,name,price,sort_order,created_at')
+      .order('product_id', { ascending: true })
+      .order('sort_order', { ascending: true })
+      .order('name', { ascending: true });
+    if (error) return [];
+    const mapped = (data || []).map(r => ({
+      ...r,
+      price: Number(r.price || 0),
+      sort_order: r.sort_order ?? 0
+    }));
+    setProductSizes(mapped);
+    return mapped;
+  };
+
+  const fetchProductSizeIngredients = async () => {
+    if (!isSupabaseConfigured) return [];
+    const { data, error } = await supabase
+      .from('product_size_ingredients')
+      .select('product_size_id,ingredient_id,quantity');
+    if (error) return [];
+    const mapped = (data || []).map(r => ({
+      product_size_id: r.product_size_id,
+      ingredient_id: r.ingredient_id,
+      quantity: Number(r.quantity)
+    }));
+    setProductSizeIngredients(mapped);
+    return mapped;
+  };
+
   const fetchProductIngredients = async () => {
     if (!isSupabaseConfigured) return [];
     const { data, error } = await supabase.from('product_ingredients').select('product_id,ingredient_id,quantity');
@@ -208,11 +270,20 @@ export function AppProvider({ children }) {
 
   const fetchSales = async () => {
     if (!isSupabaseConfigured) return [];
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('sales')
-      .select('id,account_id,total_amount,payment_method,reference_number,created_at,accounts(name),transactions(id,quantity,price,subtotal,products(name),transaction_addons(quantity,unit_price,subtotal,addons(name)))')
+      .select('id,account_id,total_amount,payment_method,reference_number,created_at,accounts(name),transactions(id,quantity,price,subtotal,product_size_id,size_name,products(name),transaction_addons(quantity,unit_price,subtotal,addons(name)))')
       .order('created_at', { ascending: false })
       .limit(200);
+    if (error && (String(error.message || '').toLowerCase().includes('product_size_id') || String(error.message || '').toLowerCase().includes('size_name'))) {
+      const retry = await supabase
+        .from('sales')
+        .select('id,account_id,total_amount,payment_method,reference_number,created_at,accounts(name),transactions(id,quantity,price,subtotal,products(name),transaction_addons(quantity,unit_price,subtotal,addons(name)))')
+        .order('created_at', { ascending: false })
+        .limit(200);
+      data = retry.data;
+      error = retry.error;
+    }
     if (error) return [];
     const mapped = (data || []).map(s => ({
       id: s.id,
@@ -226,6 +297,7 @@ export function AppProvider({ children }) {
         quantity: t.quantity,
         price: Number(t.price),
         subtotal: Number(t.subtotal),
+        size_name: t.size_name ?? null,
         addons: (t.transaction_addons || []).map(a => ({
           name: a.addons?.name ?? 'Unknown',
           quantity: Number(a.quantity),
@@ -398,6 +470,13 @@ export function AppProvider({ children }) {
         setAddons([
           { id: 1, name: 'Pearls', price_per_unit: 10, variable_quantity: true, created_at: new Date().toISOString() }
         ]);
+        setProductSizes([
+          { id: 101, product_id: 1, name: 'Standard', price: 20, sort_order: 0, created_at: new Date().toISOString() },
+          { id: 102, product_id: 2, name: 'Standard', price: 20, sort_order: 0, created_at: new Date().toISOString() },
+          { id: 103, product_id: 3, name: 'Standard', price: 15, sort_order: 0, created_at: new Date().toISOString() },
+          { id: 104, product_id: 4, name: 'Standard', price: 50, sort_order: 0, created_at: new Date().toISOString() }
+        ]);
+        setProductSizeIngredients([]);
         setProductIngredients([]);
         setProductAddons([]);
         setAddonIngredients([]);
@@ -415,6 +494,8 @@ export function AppProvider({ children }) {
           fetchProducts(),
           fetchIngredients(),
           fetchAddons(),
+          fetchProductSizes(),
+          fetchProductSizeIngredients(),
           fetchProductIngredients(),
           fetchProductAddons(),
           fetchAddonIngredients(),
@@ -738,6 +819,85 @@ export function AppProvider({ children }) {
     return { ok: true };
   };
 
+  const setProductSizesWithBOM = async (productId, sizes) => {
+    const normalized = (sizes || [])
+      .map((s, idx) => ({
+        name: (s.name || '').toString().trim(),
+        price: Number(s.price || 0),
+        sort_order: idx,
+        bomLines: s.bomLines || []
+      }))
+      .filter(s => s.name);
+
+    if (!isSupabaseConfigured) {
+      const base = Date.now();
+      const localSizes = normalized.map((s, i) => ({
+        id: base + i,
+        product_id: productId,
+        name: s.name,
+        price: s.price,
+        sort_order: s.sort_order,
+        created_at: new Date().toISOString()
+      }));
+      const localIngredients = localSizes.flatMap((sz, i) => {
+        const lines = normalized[i].bomLines || [];
+        return lines
+          .filter(l => l.ingredient_id && Number(l.quantity) > 0)
+          .map(l => ({
+            product_size_id: sz.id,
+            ingredient_id: Number(l.ingredient_id),
+            quantity: Number(l.quantity)
+          }));
+      });
+      setProductSizes(prev => [...prev.filter(s => s.product_id !== productId), ...localSizes]);
+      setProductSizeIngredients(prev => [
+        ...prev.filter(r => !localSizes.some(sz => sz.id === r.product_size_id)),
+        ...localIngredients
+      ]);
+      return { ok: true };
+    }
+
+    const { error: delErr } = await supabase.from('product_sizes').delete().eq('product_id', productId);
+    if (delErr) return { ok: false, error: delErr.message };
+
+    if (normalized.length === 0) {
+      await fetchProductSizes();
+      await fetchProductSizeIngredients();
+      return { ok: true };
+    }
+
+    const { data: sizeData, error: sizeErr } = await supabase
+      .from('product_sizes')
+      .insert(normalized.map(s => ({
+        product_id: productId,
+        name: s.name,
+        price: s.price,
+        sort_order: s.sort_order
+      })))
+      .select('id,product_id,name,price,sort_order,created_at');
+    if (sizeErr || !sizeData) return { ok: false, error: sizeErr?.message || 'Failed to save sizes' };
+
+    const ingredientRows = (sizeData || []).flatMap((sz, i) => {
+      const lines = normalized[i]?.bomLines || [];
+      return lines
+        .filter(l => l.ingredient_id && Number(l.quantity) > 0)
+        .map(l => ({
+          product_size_id: sz.id,
+          ingredient_id: Number(l.ingredient_id),
+          quantity: Number(l.quantity)
+        }));
+    });
+
+    if (ingredientRows.length > 0) {
+      const { error: ingErr } = await supabase.from('product_size_ingredients').insert(ingredientRows);
+      if (ingErr) return { ok: false, error: ingErr.message || 'Failed to save size ingredients' };
+    }
+
+    await fetchProductSizes();
+    await fetchProductSizeIngredients();
+    return { ok: true };
+  };
+
   const setProductBOM = async (productId, lines) => {
     const rows = (lines || [])
       .filter(l => l.ingredient_id && Number(l.quantity) > 0)
@@ -826,12 +986,19 @@ export function AppProvider({ children }) {
     return { ok: true };
   };
 
-  const checkProductAvailability = (product, qty = 1) => {
+  const checkProductAvailability = (product, qty = 1, productSizeId = null) => {
     const requiredQty = Number(qty || 1);
-    const bom = productBomByProductId.get(product?.id) || [];
+    const pid = product?.id;
+    const sizes = pid ? (sizesByProductId.get(pid) || []) : [];
+    const resolvedSizeId = Number(productSizeId || sizes[0]?.id || 0) || null;
+    const sizeBom = resolvedSizeId ? (sizeIngredientsBySizeId.get(resolvedSizeId) || []) : [];
+    const productBom = productBomByProductId.get(pid) || [];
+    const bom = sizeBom.length > 0 ? sizeBom : productBom;
+
     if (bom.length === 0 || ingredients.length === 0) {
       return Number(product?.stock || 0) >= requiredQty;
     }
+
     for (const row of bom) {
       const ing = ingredientById.get(row.ingredient_id);
       const available = Number(ing?.quantity || 0);
@@ -842,7 +1009,8 @@ export function AppProvider({ children }) {
   };
 
   const checkCartAvailability = (cartItems) => {
-    if (ingredients.length === 0 || productIngredients.length === 0) {
+    const bomEnabled = ingredients.length > 0 && (productSizeIngredients.length > 0 || productIngredients.length > 0);
+    if (!bomEnabled) {
       const missing = [];
       const totals = new Map();
       for (const item of cartItems || []) {
@@ -870,7 +1038,9 @@ export function AppProvider({ children }) {
     for (const item of cartItems || []) {
       const productId = Number(item.product_id ?? item.id);
       const qty = Number(item.quantity || 0);
-      const bom = productBomByProductId.get(productId) || [];
+      const sizeId = Number(item.product_size_id ?? item.size_id ?? 0) || null;
+      const sizeBom = sizeId ? (sizeIngredientsBySizeId.get(sizeId) || []) : [];
+      const bom = sizeBom.length > 0 ? sizeBom : (productBomByProductId.get(productId) || []);
       for (const row of bom) {
         const key = row.ingredient_id;
         requiredByIngredient.set(key, (requiredByIngredient.get(key) || 0) + Number(row.quantity || 0) * qty);
@@ -911,7 +1081,7 @@ export function AppProvider({ children }) {
     const cartItems = items || [];
     if (cartItems.length === 0) return { ok: false };
 
-    const bomMode = ingredients.length > 0 && productIngredients.length > 0;
+    const bomMode = ingredients.length > 0 && (productSizeIngredients.length > 0 || productIngredients.length > 0);
     if (bomMode) {
       const cartCheck = checkCartAvailability(cartItems);
       if (!cartCheck.ok) {
@@ -985,7 +1155,9 @@ export function AppProvider({ children }) {
       for (const item of cartItems) {
         const productId = Number(item.product_id);
         const qty = Number(item.quantity || 0);
-        const bom = productBomByProductId.get(productId) || [];
+        const sizeId = Number(item.product_size_id ?? item.size_id ?? 0) || null;
+        const sizeBom = sizeId ? (sizeIngredientsBySizeId.get(sizeId) || []) : [];
+        const bom = sizeBom.length > 0 ? sizeBom : (productBomByProductId.get(productId) || []);
         for (const row of bom) {
           requiredByIngredient.set(
             row.ingredient_id,
@@ -1015,16 +1187,29 @@ export function AppProvider({ children }) {
         return sum + unit * q;
       }, 0);
 
-      const { data: trxData, error: trxErr } = await supabase
+      const trxPayload = {
+        sale_id: saleId,
+        product_id: item.product_id,
+        quantity: qty,
+        price: unitBase,
+        subtotal: (unitBase + lineAddonTotal) * qty,
+        product_size_id: item.product_size_id ?? item.size_id ?? null,
+        size_name: item.size_name ?? item.displaySize ?? null
+      };
+
+      let { data: trxData, error: trxErr } = await supabase
         .from('transactions')
-        .insert([{
-          sale_id: saleId,
-          product_id: item.product_id,
-          quantity: qty,
-          price: unitBase,
-          subtotal: (unitBase + lineAddonTotal) * qty
-        }])
+        .insert([trxPayload])
         .select('id');
+
+      if (trxErr && (String(trxErr.message || '').toLowerCase().includes('product_size_id') || String(trxErr.message || '').toLowerCase().includes('size_name'))) {
+        const fallback = { ...trxPayload };
+        delete fallback.product_size_id;
+        delete fallback.size_name;
+        const retry = await supabase.from('transactions').insert([fallback]).select('id');
+        trxData = retry.data;
+        trxErr = retry.error;
+      }
 
       if (trxErr || !trxData?.[0]) {
         addNotification(trxErr?.message || 'Failed to save sale items', 'error');
@@ -1128,6 +1313,11 @@ export function AppProvider({ children }) {
     createAddon,
     updateAddon,
     deleteAddon,
+    productSizes,
+    fetchProductSizes,
+    productSizeIngredients,
+    fetchProductSizeIngredients,
+    setProductSizesWithBOM,
     productIngredients,
     fetchProductIngredients,
     setProductBOM,

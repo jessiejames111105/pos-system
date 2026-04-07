@@ -144,6 +144,7 @@ const POSPage = () => {
     checkCartAvailability,
     categories,
     products,
+    productSizes,
     addons,
     productAddons
   } = useApp();
@@ -184,22 +185,30 @@ const POSPage = () => {
       return;
     }
     setSelectedProduct(product);
-    setCustomSize(product.sizes[0]);
+    setCustomSize(product.sizeOptions?.[0]?.key || '');
     setCustomSugar('100%');
     setCustomAddons([]);
   };
 
   const handleAddtoCheckout = () => {
     const addonsTotal = customAddons.reduce((sum, a) => sum + Number(a.unit_price || 0) * Number(a.quantity || 0), 0);
+    const selectedSize =
+      selectedProduct?.sizeOptions?.find(s => s.key === customSize) ||
+      selectedProduct?.sizeOptions?.[0] ||
+      { id: null, name: 'Standard', price: Number(selectedProduct?.basePrice || 0) };
+    const basePrice = Number(selectedSize.price || 0);
     const finalItem = {
       ...selectedProduct,
       product_id: selectedProduct.id,
       id: `${selectedProduct.id}_${Date.now()}`,
-      displaySize: customSize,
+      product_size_id: selectedSize.id,
+      size_name: selectedSize.name,
+      displaySize: selectedSize.name,
       displaySugar: selectedProduct.hasSugarLevel ? customSugar : null,
       displayAddons: customAddons.map(a => ({ name: a.name, price: a.unit_price, quantity: a.quantity })),
       addons: customAddons.map(a => ({ addon_id: a.addon_id, unit_price: a.unit_price, quantity: a.quantity })),
-      price: selectedProduct.basePrice + addonsTotal,
+      basePrice,
+      price: basePrice + addonsTotal,
       quantity: 1
     };
     addToCart(finalItem);
@@ -229,6 +238,8 @@ const POSPage = () => {
 
     const checkoutItems = cart.map(item => ({
       product_id: item.product_id,
+      product_size_id: item.product_size_id ?? null,
+      size_name: item.size_name ?? item.displaySize ?? null,
       name: item.name,
       price: item.basePrice ?? item.price,
       quantity: item.quantity,
@@ -278,12 +289,28 @@ const POSPage = () => {
   const posProducts = useMemo(() => {
     return (products || []).map(p => ({
       ...p,
+      sizeOptions: (() => {
+        const sizes = (productSizes || [])
+          .filter(s => Number(s.product_id) === Number(p.id))
+          .map(s => ({
+            key: String(s.id),
+            id: s.id,
+            name: s.name,
+            price: Number(s.price || 0)
+          }));
+        if (sizes.length > 0) return sizes;
+        return [{
+          key: `default-${p.id}`,
+          id: null,
+          name: 'Standard',
+          price: Number(p.price || 0)
+        }];
+      })(),
       basePrice: Number(p.price || 0),
-      sizes: ['Standard'],
       hasSugarLevel: false,
       icon: '📦'
     }));
-  }, [products]);
+  }, [products, productSizes]);
 
   const filteredProducts = useMemo(() => {
     if (!selectedCategory) return [];
@@ -451,7 +478,9 @@ const POSPage = () => {
                       <div className="flex flex-col">
                         <span className="text-[10px] font-bold text-slate-400 uppercase">{item.displaySize} {item.displaySugar && `| ${item.displaySugar}`}</span>
                         {item.displayAddons.length > 0 && (
-                          <span className="text-[10px] font-medium text-primary-500">+{item.displayAddons.map(a => a.name).join(', ')}</span>
+                          <span className="text-[10px] font-medium text-primary-500">
+                            +{item.displayAddons.map(a => `${a.name} x${Number(a.quantity || 0)}`).join(', ')}
+                          </span>
                         )}
                       </div>
                       <div className="flex items-center gap-3 bg-white rounded-xl border border-slate-200 p-1 shadow-sm" onClick={e => e.stopPropagation()}>
@@ -550,17 +579,20 @@ const POSPage = () => {
                       <Filter size={14} /> Select Size
                     </h4>
                     <div className="flex flex-col gap-2">
-                      {selectedProduct.sizes.map(size => (
+                      {(selectedProduct.sizeOptions || []).map(size => (
                         <button
-                          key={size}
-                          onClick={() => setCustomSize(size)}
+                          key={size.key}
+                          onClick={() => setCustomSize(size.key)}
                           className={`p-4 rounded-2xl text-left font-bold transition-all border-2 ${
-                            customSize === size 
+                            customSize === size.key
                               ? 'bg-primary-50 border-primary-600 text-primary-700 shadow-md' 
                               : 'bg-slate-50 border-transparent text-slate-500 hover:bg-slate-100'
                           }`}
                         >
-                          {size}
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="truncate">{size.name}</span>
+                            <span>₱{Number(size.price || 0).toLocaleString()}</span>
+                          </div>
                         </button>
                       ))}
                     </div>
@@ -596,56 +628,36 @@ const POSPage = () => {
                           const addonId = addon.id ?? addon.addon_id;
                           const selected = customAddons.find(a => a.addon_id === addonId);
                           const unitPrice = Number(addon.price_per_unit ?? addon.unit_price ?? addon.price ?? 0);
-                          const variable = Boolean(addon.variable_quantity);
                           const qty = Number(selected?.quantity || 0);
-
-                          if (variable) {
-                            return (
-                              <div key={addonId} className="flex items-center justify-between gap-3 p-3 rounded-2xl border-2 border-slate-200 bg-white">
-                                <div className="min-w-0">
-                                  <p className="font-bold text-slate-900 truncate">{addon.name}</p>
-                                  <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">₱{unitPrice.toLocaleString()} / unit</p>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    onClick={() => setAddonQuantity(addon, qty - 1)}
-                                    className="h-10 w-10 rounded-xl border-2 border-slate-200 text-slate-600 hover:border-primary-300 hover:text-primary-700 transition-all flex items-center justify-center"
-                                  >
-                                    <Minus size={16} />
-                                  </button>
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    step="1"
-                                    value={qty}
-                                    onChange={(e) => setAddonQuantity(addon, e.target.value)}
-                                    className="w-16 h-10 text-center rounded-xl border-2 border-slate-200 font-bold text-slate-900 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none"
-                                  />
-                                  <button
-                                    onClick={() => setAddonQuantity(addon, qty + 1)}
-                                    className="h-10 w-10 rounded-xl border-2 border-slate-200 text-slate-600 hover:border-primary-300 hover:text-primary-700 transition-all flex items-center justify-center"
-                                  >
-                                    <Plus size={16} />
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          }
-
-                          const checked = qty > 0;
                           return (
-                            <button
-                              key={addonId}
-                              onClick={() => setAddonQuantity(addon, checked ? 0 : 1)}
-                              className={`w-full flex items-center justify-between gap-3 px-4 py-3 rounded-2xl text-xs font-bold transition-all border-2 ${
-                                checked
-                                  ? 'bg-primary-600 border-primary-600 text-white shadow-md' 
-                                  : 'bg-white border-slate-200 text-slate-700 hover:border-primary-300'
-                              }`}
-                            >
-                              <span className="truncate">{addon.name}</span>
-                              <span>₱{unitPrice.toLocaleString()}</span>
-                            </button>
+                            <div key={addonId} className="flex items-center justify-between gap-3 p-3 rounded-2xl border-2 border-slate-200 bg-white">
+                              <div className="min-w-0">
+                                <p className="font-bold text-slate-900 truncate">{addon.name}</p>
+                                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">₱{unitPrice.toLocaleString()} / unit</p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => setAddonQuantity(addon, qty - 1)}
+                                  className="h-10 w-10 rounded-xl border-2 border-slate-200 text-slate-600 hover:border-primary-300 hover:text-primary-700 transition-all flex items-center justify-center"
+                                >
+                                  <Minus size={16} />
+                                </button>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  value={qty}
+                                  onChange={(e) => setAddonQuantity(addon, e.target.value)}
+                                  className="w-16 h-10 text-center rounded-xl border-2 border-slate-200 font-bold text-slate-900 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none"
+                                />
+                                <button
+                                  onClick={() => setAddonQuantity(addon, qty + 1)}
+                                  className="h-10 w-10 rounded-xl border-2 border-slate-200 text-slate-600 hover:border-primary-300 hover:text-primary-700 transition-all flex items-center justify-center"
+                                >
+                                  <Plus size={16} />
+                                </button>
+                              </div>
+                            </div>
                           );
                         })}
 
@@ -711,7 +723,9 @@ const POSPage = () => {
                   <div className="text-right">
                     {previewItem.displayAddons.length > 0 ? (
                       previewItem.displayAddons.map(a => (
-                        <div key={a.name} className="font-bold text-slate-900">{a.name} (₱{a.price})</div>
+                        <div key={a.name} className="font-bold text-slate-900">
+                          {a.name} x{Number(a.quantity || 0)} (₱{Number(a.price || 0).toLocaleString()})
+                        </div>
                       ))
                     ) : (
                       <span className="font-bold text-slate-300">NONE</span>

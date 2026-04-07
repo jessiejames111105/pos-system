@@ -41,6 +41,7 @@ const Inventory = () => {
   const [addonBomLines, setAddonBomLines] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [addonFormBomLines, setAddonFormBomLines] = useState([]);
   
   const isAdmin = user?.role === 'admin';
 
@@ -121,6 +122,7 @@ const Inventory = () => {
   const openNewAddon = () => {
     setEditingAddon(null);
     setAddonForm(initialAddonForm);
+    setAddonFormBomLines([]);
     setIsAddonModalOpen(true);
   };
 
@@ -131,6 +133,11 @@ const Inventory = () => {
       price_per_unit: String(Number(addon.price_per_unit || 0)),
       variable_quantity: Boolean(addon.variable_quantity)
     });
+    setAddonFormBomLines(
+      (addonIngredients || [])
+        .filter(r => Number(r.addon_id) === Number(addon.id))
+        .map(r => ({ ingredient_id: r.ingredient_id, quantity: r.quantity }))
+    );
     setIsAddonModalOpen(true);
   };
 
@@ -148,8 +155,11 @@ const Inventory = () => {
 
       if (editingAddon) {
         await updateAddon(editingAddon.id, payload);
+        await setAddonBOM(editingAddon.id, addonFormBomLines);
       } else {
-        await createAddon(payload);
+        const res = await createAddon(payload);
+        const addonId = res?.addon?.id ?? null;
+        if (addonId) await setAddonBOM(addonId, addonFormBomLines);
       }
       setIsAddonModalOpen(false);
     } finally {
@@ -517,6 +527,73 @@ const Inventory = () => {
                     value={addonForm.price_per_unit}
                     onChange={(e) => setAddonForm({ ...addonForm, price_per_unit: e.target.value })}
                   />
+                </div>
+
+                <div className="rounded-3xl border border-slate-200 bg-white overflow-hidden">
+                  <div className="px-4 py-3 bg-slate-50/60 border-b border-slate-200 flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-slate-700 font-bold uppercase tracking-wider text-xs">
+                      <Package size={14} />
+                      Ingredients per Unit
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setAddonFormBomLines(prev => [...prev, { ingredient_id: '', quantity: '' }])}
+                      className="px-3 py-2 rounded-xl text-xs font-bold bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 transition-all flex items-center gap-2"
+                    >
+                      <Plus size={16} />
+                      Add Line
+                    </button>
+                  </div>
+
+                  <div className="p-4 space-y-3">
+                    {addonFormBomLines.map((line, idx) => (
+                      <div key={idx} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                        <div className="md:col-span-7">
+                          <select
+                            className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all bg-white"
+                            value={line.ingredient_id}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setAddonFormBomLines(prev => prev.map((x, i) => i === idx ? { ...x, ingredient_id: v } : x));
+                            }}
+                          >
+                            <option value="">Select ingredient</option>
+                            {ingredients.map(ing => (
+                              <option key={ing.id} value={ing.id}>{ing.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="md:col-span-4">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.001"
+                            className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all"
+                            placeholder="Qty per unit"
+                            value={line.quantity}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setAddonFormBomLines(prev => prev.map((x, i) => i === idx ? { ...x, quantity: v } : x));
+                            }}
+                          />
+                        </div>
+                        <div className="md:col-span-1 flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => setAddonFormBomLines(prev => prev.filter((_, i) => i !== idx))}
+                            className="p-3 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 transition-all"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {addonFormBomLines.length === 0 && (
+                      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
+                        Set how many ingredients are used per 1 add-on unit (example: Pearl = 10g per unit).
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 flex items-center justify-between">

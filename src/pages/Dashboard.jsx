@@ -31,12 +31,16 @@ const StatCard = ({ title, value, change, icon: Icon, trend }) => (
         <div className="p-4 rounded-2xl bg-primary-50 text-primary-600">
           <Icon size={28} />
         </div>
-        <div className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-3 py-1.5 rounded-full ${
-          trend === 'up' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'
-        }`}>
-          {trend === 'up' ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
-          {change}
-        </div>
+        {change ? (
+          <div className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-3 py-1.5 rounded-full ${
+            trend === 'up' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'
+          }`}>
+            {trend === 'up' ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
+            {change}
+          </div>
+        ) : (
+          <div />
+        )}
       </div>
       <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">{title}</p>
       <h3 className="text-2xl lg:text-3xl font-bold text-slate-900 mt-2 tracking-tight">{value}</h3>
@@ -45,19 +49,36 @@ const StatCard = ({ title, value, change, icon: Icon, trend }) => (
 );
 
 const Dashboard = () => {
-  const { user, dailySales, salesReport, sales, ingredients } = useApp();
+  const { user, dailySales, salesReport, sales, ingredients, categories, products } = useApp();
   const [reportType, setReportType] = useState('Weekly'); // Daily, Weekly, Monthly
+  const [topCategoryFilter, setTopCategoryFilter] = useState('all');
   const isAdmin = user?.role === 'admin';
 
   const rangeDays = reportType === 'Monthly' ? 30 : reportType === 'Daily' ? 1 : 7;
   const reportRows = (salesReport || []).slice(0, rangeDays);
-  const adminRevenue = reportRows.reduce((sum, r) => sum + Number(r.total_revenue || 0), 0);
-  const adminOrders = reportRows.reduce((sum, r) => sum + Number(r.total_transactions || 0), 0);
+  const prevRows = (salesReport || []).slice(rangeDays, rangeDays * 2);
+  const periodRevenue = reportRows.reduce((sum, r) => sum + Number(r.total_revenue || 0), 0);
+  const prevRevenue = prevRows.reduce((sum, r) => sum + Number(r.total_revenue || 0), 0);
+  const periodOrders = reportRows.reduce((sum, r) => sum + Number(r.total_transactions || 0), 0);
+  const prevOrders = prevRows.reduce((sum, r) => sum + Number(r.total_transactions || 0), 0);
+  const pctChange = (cur, prev) => {
+    if (!Number.isFinite(prev) || prev <= 0) return null;
+    const pct = ((cur - prev) / prev) * 100;
+    if (!Number.isFinite(pct)) return null;
+    return pct;
+  };
+  const formatPct = (pct) => {
+    const sign = pct > 0 ? '+' : '';
+    return `${sign}${pct.toFixed(1)}%`;
+  };
+  const revenueChange = pctChange(periodRevenue, prevRevenue);
+  const ordersChange = pctChange(periodOrders, prevOrders);
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const todayOrders = (sales || []).filter(s => String(s.created_at || '').slice(0, 10) === todayStr).length;
   const avgTransaction = todayOrders > 0 ? Number(dailySales || 0) / todayOrders : 0;
   const lowStockIngredients = (ingredients || []).filter(i => Number(i.min_stock || 0) > 0 && Number(i.quantity || 0) <= Number(i.min_stock || 0));
+  const periodAvgTransaction = periodOrders > 0 ? periodRevenue / periodOrders : 0;
 
   const startDate = useMemo(() => {
     const d = new Date();
@@ -66,7 +87,16 @@ const Dashboard = () => {
     return d;
   }, [rangeDays]);
 
-  const topProducts = useMemo(() => {
+  const productMetaByName = useMemo(() => {
+    const map = new Map();
+    for (const p of products || []) {
+      if (!p?.name) continue;
+      map.set(p.name, { category_id: p.category_id ?? null, categoryName: p.categoryName ?? null });
+    }
+    return map;
+  }, [products]);
+
+  const topProductsRaw = useMemo(() => {
     const map = new Map();
     for (const s of sales || []) {
       const dt = new Date(s.created_at);
@@ -77,10 +107,21 @@ const Dashboard = () => {
       }
     }
     return Array.from(map.entries())
-      .map(([name, qty]) => ({ name, qty }))
+      .map(([name, qty]) => ({
+        name,
+        qty,
+        category_id: productMetaByName.get(name)?.category_id ?? null,
+        categoryName: productMetaByName.get(name)?.categoryName ?? null
+      }))
       .sort((a, b) => b.qty - a.qty)
-      .slice(0, 5);
-  }, [sales, startDate]);
+      .slice(0, 20);
+  }, [sales, startDate, productMetaByName]);
+
+  const topProducts = useMemo(() => {
+    if (topCategoryFilter === 'all') return topProductsRaw.slice(0, 5);
+    const catId = Number(topCategoryFilter);
+    return topProductsRaw.filter(p => Number(p.category_id) === catId).slice(0, 5);
+  }, [topProductsRaw, topCategoryFilter]);
 
   return (
     <div className="space-y-10 pb-10">
@@ -104,20 +145,17 @@ const Dashboard = () => {
         
         <div className="flex items-center gap-3">
           {isAdmin && (
-            <div className="flex items-center gap-2 bg-white p-2 rounded-2xl border border-slate-200 shadow-sm">
-              {['Daily', 'Weekly', 'Monthly'].map(type => (
-                <button
-                  key={type}
-                  onClick={() => setReportType(type)}
-                  className={`px-6 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wide transition-all ${
-                    reportType === type 
-                      ? 'bg-primary-600 text-white shadow-lg shadow-primary-200' 
-                      : 'text-slate-500 hover:bg-slate-50'
-                  }`}
-                >
-                  {type}
-                </button>
-              ))}
+            <div className="bg-white p-2 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-2">
+              <Calendar size={16} className="text-slate-400" />
+              <select
+                value={reportType}
+                onChange={(e) => setReportType(e.target.value)}
+                className="px-4 py-2 rounded-xl border border-slate-200 bg-white font-bold text-slate-900 text-xs uppercase tracking-wide"
+              >
+                <option value="Daily">Daily</option>
+                <option value="Weekly">Weekly</option>
+                <option value="Monthly">Monthly</option>
+              </select>
             </div>
           )}
           <button className="p-4 bg-white border border-slate-200 text-slate-600 rounded-2xl hover:bg-slate-50 transition-all shadow-sm flex items-center gap-2 font-bold uppercase tracking-wide text-[10px]">
@@ -130,15 +168,21 @@ const Dashboard = () => {
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard 
-          title="Total Sales Today"
-          value={`₱${Number(dailySales || 0).toLocaleString()}`} 
-          change="+12.5%" 
-          trend="up" 
+          title={isAdmin ? `Total Sales (${reportType})` : "Total Sales Today"}
+          value={`₱${Number(isAdmin ? periodRevenue : dailySales || 0).toLocaleString()}`} 
+          change={isAdmin && revenueChange !== null ? formatPct(revenueChange) : null}
+          trend={revenueChange !== null && revenueChange >= 0 ? 'up' : 'down'}
           icon={DollarSign} 
         />
-        <StatCard title="Total Transactions" value={todayOrders.toLocaleString()} change="+8.2%" trend="up" icon={ShoppingBag} />
-        <StatCard title="Low-stock Alerts" value={lowStockIngredients.length.toLocaleString()} change="-2.4%" trend="down" icon={AlertTriangle} />
-        <StatCard title="Avg Transaction" value={`₱${avgTransaction.toFixed(2)}`} change="+4.1%" trend="up" icon={Clock} />
+        <StatCard
+          title={isAdmin ? `Total Transactions (${reportType})` : "Total Transactions"}
+          value={Number(isAdmin ? periodOrders : todayOrders).toLocaleString()}
+          change={isAdmin && ordersChange !== null ? formatPct(ordersChange) : null}
+          trend={ordersChange !== null && ordersChange >= 0 ? 'up' : 'down'}
+          icon={ShoppingBag}
+        />
+        <StatCard title="Low-stock Alerts" value={lowStockIngredients.length.toLocaleString()} change={null} trend="down" icon={AlertTriangle} />
+        <StatCard title="Avg Transaction" value={`₱${Number(isAdmin ? periodAvgTransaction : avgTransaction).toFixed(2)}`} change={null} trend="up" icon={Clock} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -197,9 +241,19 @@ const Dashboard = () => {
             <h2 className="text-2xl font-bold text-slate-900 tracking-tight uppercase">
               {isAdmin ? 'Top Sellers' : 'Popular Items'}
             </h2>
-            <button className="p-2 rounded-xl bg-slate-50 text-slate-400 hover:text-primary-600 transition-colors">
-              <Filter size={18} />
-            </button>
+            <div className="flex items-center gap-2">
+              <Filter size={18} className="text-slate-400" />
+              <select
+                value={topCategoryFilter}
+                onChange={(e) => setTopCategoryFilter(e.target.value)}
+                className="px-4 py-2 rounded-xl border border-slate-200 bg-white font-bold text-slate-900 text-xs uppercase tracking-wide"
+              >
+                <option value="all">All</option>
+                {(categories || []).map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
           </div>
           <div className="space-y-8">
             {topProducts.map((p) => (
