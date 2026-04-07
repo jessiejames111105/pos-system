@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+@theme {
+  /* User-defined colors */
+  --color-primary-50: #fffcf0;
+  --color-primary-100: #fff9e1;
+  --color-primary-200: #ffefc4;
+  --color-primary-300: #ffdd9a; /* Highlight Gold */
+  --color-primary-400: #eec175;
+  --color-primary-500: #dbac61;
+  --color-primary-600: #c9a854; /* Main Brand Gold */
+  --color-primary-700: #a68b45;
+  --color-primary-800: #836e37;
+  --color-primary-900: #6b5a2d;
+  --color-primary-950: #3e341a;
+
+  --color-neutral-accent: #d6cec0; /* Greige Accent */
+}
+
+:root {
+  --primary: #c9a854;
+  --primary-light: #ffdd9a;
+  --secondary: #d6cec0;
+  --background: #fdfbf7;
+  --foreground: #2d2a24;
+}
+
+@layer base {
+  body {
+    @apply bg-[#fdfbf7] text-[#2d2a24] font-sans;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply px-4 py-2 rounded-lg font-medium transition-all active:scale-95 disabled:opacity-50 disabled:pointer-events-none;
+  }
+  .btn-primary {
+    @apply bg-primary-600 text-white hover:bg-primary-700 shadow-sm;
+  }
+  .btn-secondary {
+    @apply bg-[#d6cec0] text-[#2d2a24] hover:bg-[#c5bcb0] shadow-sm;
+  }
+  .card {
+    @apply bg-white rounded-xl border border-[#d6cec0]/40 shadow-sm overflow-hidden;
+  }
+}
