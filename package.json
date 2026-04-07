@@ -17,6 +17,8 @@
     "autoprefixer": "^10.4.27",
     "clsx": "^2.1.1",
     "framer-motion": "^12.38.0",
+    "jspdf": "^2.5.1",
+    "jspdf-autotable": "^3.8.4",
     "lucide-react": "^1.7.0",
     "postcss": "^8.5.8",
     "react": "^18.2.0",
@@ -38,6 +40,6 @@
     "vite-plugin-pwa": "^0.18.0"
   },
   "engines": {
-    "node": "24.x"
+    "node": ">=20.20.0"
   }
 }

@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { motion } from 'framer-motion';
-import { escapeHtml, openPrintPdf } from '../lib/printPdf';
+import { downloadStructuredPdf, pdfFormats } from '../lib/exportPdf';
 
 const StatCard = ({ title, value, change, icon: Icon, trend, subtitle, onClick }) => (
   <motion.div
@@ -143,120 +143,63 @@ const Dashboard = () => {
   const handleExport = () => {
     const title = 'Dashboard Report';
     const periodLabel = isAdmin ? reportType : 'Daily';
-    const filename = `ZwitBlakTea-dashboard_${periodLabel.toLowerCase()}_${new Date().toISOString().slice(0, 10)}`;
 
     const revenue = isAdmin ? periodRevenue : Number(dailySales || 0);
     const orders = isAdmin ? periodOrders : todayOrders;
     const avg = orders > 0 ? revenue / orders : 0;
-
-    const salesRows = (reportRows || []).map(r => `
-      <tr>
-        <td>${escapeHtml(r.sale_date)}</td>
-        <td class="right">${Number(r.total_transactions || 0).toLocaleString()}</td>
-        <td class="right">₱${Number(r.total_revenue || 0).toLocaleString()}</td>
-      </tr>
-    `).join('');
-
-    const topRows = (topProductsRaw || []).map(p => `
-      <tr>
-        <td>${escapeHtml(p.name)}</td>
-        <td>${escapeHtml(p.categoryName || '')}</td>
-        <td class="right">${Number(p.qty || 0).toLocaleString()}</td>
-      </tr>
-    `).join('');
-
-    const lowRows = (lowStockIngredients || []).map(i => `
-      <tr>
-        <td>${escapeHtml(i.name)}</td>
-        <td class="right">${Number(i.quantity || 0).toLocaleString()}</td>
-        <td>${escapeHtml(i.unit || '')}</td>
-        <td class="right">${Number(i.min_stock || 0).toLocaleString()}</td>
-      </tr>
-    `).join('');
-
-    const bodyHtml = `
-      <div class="row">
-        <div>
-          <h1>${escapeHtml(title)}</h1>
-          <div class="small muted">ZwitBlakTea</div>
-        </div>
-        <div class="right">
-          <div class="pill">${escapeHtml(periodLabel)}</div>
-          <div class="xs muted" style="margin-top:6px;">Generated: ${escapeHtml(new Date().toLocaleString())}</div>
-        </div>
-      </div>
-
-      <div class="section card">
-        <div class="section-title">Summary</div>
-        <div class="grid">
-          <div class="card">
-            <div class="xs muted">Total Sales</div>
-            <div style="font-weight:800; font-size:16px;">₱${Number(revenue || 0).toLocaleString()}</div>
-          </div>
-          <div class="card">
-            <div class="xs muted">Total Transactions</div>
-            <div style="font-weight:800; font-size:16px;">${Number(orders || 0).toLocaleString()}</div>
-          </div>
-          <div class="card">
-            <div class="xs muted">Avg Transaction</div>
-            <div style="font-weight:800; font-size:16px;">₱${Number(avg || 0).toFixed(2)}</div>
-          </div>
-        </div>
-      </div>
-
-      ${isAdmin ? `
-        <div class="section">
-          <div class="section-title">Sales Report (by day)</div>
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th class="right">Transactions</th>
-                <th class="right">Revenue</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${salesRows || `<tr><td colspan="3" class="muted">No data.</td></tr>`}
-            </tbody>
-          </table>
-        </div>
-      ` : ''}
-
-      <div class="section">
-        <div class="section-title">Top Sellers</div>
-        <table>
-          <thead>
-            <tr>
-              <th>Product</th>
-              <th>Category</th>
-              <th class="right">Qty Sold</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${topRows || `<tr><td colspan="3" class="muted">No data.</td></tr>`}
-          </tbody>
-        </table>
-      </div>
-
-      <div class="section">
-        <div class="section-title">Low-stock Ingredients</div>
-        <table>
-          <thead>
-            <tr>
-              <th>Ingredient</th>
-              <th class="right">Remaining</th>
-              <th>Unit</th>
-              <th class="right">Min</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${lowRows || `<tr><td colspan="4" class="muted">None</td></tr>`}
-          </tbody>
-        </table>
-      </div>
-    `;
-
-    openPrintPdf({ title, filename, bodyHtml });
+    downloadStructuredPdf({
+      filename: `ZwitBlakTea-dashboard_${periodLabel.toLowerCase()}_${new Date().toISOString().slice(0, 10)}`,
+      title,
+      subtitle: 'ZwitBlakTea',
+      meta: [
+        `Period: ${periodLabel}`,
+        `Period Start: ${startDate.toISOString().slice(0, 10)}`,
+        `Period End: ${new Date().toISOString().slice(0, 10)}`,
+        `Generated: ${new Date().toLocaleString()}`
+      ],
+      sections: [
+        {
+          title: 'Summary',
+          columns: ['Total Sales', 'Total Transactions', 'Avg Transaction'],
+          rows: [[
+            pdfFormats.formatPeso(revenue || 0),
+            Number(orders || 0).toLocaleString(),
+            pdfFormats.formatPeso(avg || 0)
+          ]]
+        },
+        ...(isAdmin ? [{
+          title: 'Sales Report (by day)',
+          columns: ['Date', 'Transactions', 'Revenue'],
+          columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
+          rows: (reportRows || []).map(r => ([
+            String(r.sale_date),
+            Number(r.total_transactions || 0).toLocaleString(),
+            pdfFormats.formatPeso(r.total_revenue || 0)
+          ]))
+        }] : []),
+        {
+          title: 'Top Sellers',
+          columns: ['Product', 'Category', 'Qty Sold'],
+          columnStyles: { 2: { halign: 'right' } },
+          rows: (topProductsRaw || []).map(p => ([
+            String(p.name),
+            String(p.categoryName || ''),
+            Number(p.qty || 0).toLocaleString()
+          ]))
+        },
+        {
+          title: 'Low-stock Ingredients',
+          columns: ['Ingredient', 'Remaining', 'Unit', 'Min'],
+          columnStyles: { 1: { halign: 'right' }, 3: { halign: 'right' } },
+          rows: (lowStockIngredients || []).map(i => ([
+            String(i.name),
+            Number(i.quantity || 0).toLocaleString(),
+            String(i.unit || ''),
+            Number(i.min_stock || 0).toLocaleString()
+          ]))
+        }
+      ]
+    });
   };
 
   return (

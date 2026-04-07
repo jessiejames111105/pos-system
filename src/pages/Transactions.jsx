@@ -12,12 +12,14 @@ import {
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { motion, AnimatePresence } from 'framer-motion';
-import { escapeHtml, openPrintPdf } from '../lib/printPdf';
+import { downloadStructuredPdf, pdfFormats } from '../lib/exportPdf';
+import ReceiptPanel from '../components/ReceiptPanel';
 
 const Transactions = () => {
   const { sales, user, globalSearchTerm, setGlobalSearchTerm } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTrx, setSelectedTrx] = useState(null);
+  const [isReceiptOpen, setIsReceiptOpen] = useState(false);
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [paymentFilter, setPaymentFilter] = useState('all'); // all | Cash | GCash
@@ -35,12 +37,17 @@ const Transactions = () => {
       cashier: s.cashier,
       date: s.created_at,
       total: Number(s.total_amount || 0),
-      paymentMethod: s.payment_method,
+      paymentMethod:
+        String(s.payment_method || '').toLowerCase().includes('cash') || s.cash_received != null || s.change_amount != null
+          ? 'Cash'
+          : 'GCash',
+      cashReceived: s.cash_received == null ? null : Number(s.cash_received),
+      changeAmount: s.change_amount == null ? null : Number(s.change_amount),
       items: (s.items || []).map(i => ({
         name: i.name,
         quantity: i.quantity,
         price: Number(i.price || 0),
-        details: i.size_name ? `Size: ${i.size_name}` : '',
+        details: i.size_name ? String(i.size_name).toUpperCase() : '',
         addons: (i.addons || []).map(a => ({
           name: a.name,
           quantity: Number(a.quantity || 0),
@@ -91,71 +98,45 @@ const Transactions = () => {
   };
 
   const handleExport = () => {
-    const title = 'Transactions Report';
-    const filename = `ZwitBlakTea-transactions_${fromDate || 'all'}_to_${toDate || 'all'}`;
-    const rowsHtml = (filteredTransactions || []).map(trx => {
-      const itemsHtml = (trx.items || []).map(i => {
-        const addons = (i.addons || [])
-          .filter(a => Number(a.quantity || 0) > 0)
-          .map(a => `${a.name} x${Number(a.quantity || 0)}`)
-          .join(', ');
-        const details = i.details ? ` (${i.details})` : '';
-        return `${escapeHtml(i.name)}${escapeHtml(details)} x${Number(i.quantity || 0)}${addons ? ` <span class="muted xs">[+ ${escapeHtml(addons)}]</span>` : ''}`;
-      }).join('<br/>');
+    downloadStructuredPdf({
+      filename: `ZwitBlakTea-transactions_${fromDate || 'all'}_to_${toDate || 'all'}`,
+      title: 'Transactions Report',
+      subtitle: 'ZwitBlakTea',
+      meta: [
+        `Date Range: ${fromDate || 'All'} to ${toDate || 'All'}`,
+        `Payment: ${paymentFilter}`,
+        `Cashier: ${isAdmin ? cashierFilter : (user?.name || 'Cashier')}`,
+        `Generated: ${new Date().toLocaleString()}`
+      ],
+      sections: [
+        {
+          title: 'Transactions',
+          columns: ['Transaction ID', 'Date', 'Cashier', 'Payment', 'Total', 'Items'],
+          columnStyles: { 4: { halign: 'right' } },
+          rows: (filteredTransactions || []).map(trx => {
+            const itemsText = (trx.items || [])
+              .map(i => {
+                const addons = (i.addons || [])
+                  .filter(a => Number(a.quantity || 0) > 0)
+                  .map(a => `${a.name} x${Number(a.quantity || 0)}`)
+                  .join(', ');
+                const details = i.details ? ` (${i.details})` : '';
+                return `${i.name}${details} x${Number(i.quantity || 0)}${addons ? ` [+ ${addons}]` : ''}`;
+              })
+              .join(' | ');
 
-      return `
-        <tr>
-          <td>${escapeHtml(trx.id)}</td>
-          <td>${escapeHtml(formatDate(trx.date))}</td>
-          <td>${escapeHtml(trx.cashier || '')}</td>
-          <td>${escapeHtml(trx.paymentMethod || '')}</td>
-          <td class="right">₱${Number(trx.total || 0).toLocaleString()}</td>
-          <td>${itemsHtml}</td>
-        </tr>
-      `;
-    }).join('');
-
-    const bodyHtml = `
-      <div class="row">
-        <div>
-          <h1>${escapeHtml(title)}</h1>
-          <div class="small muted">ZwitBlakTea</div>
-        </div>
-        <div class="right">
-          <div class="pill">${escapeHtml(fromDate || 'All')} → ${escapeHtml(toDate || 'All')}</div>
-          <div class="xs muted" style="margin-top:6px;">Generated: ${escapeHtml(new Date().toLocaleString())}</div>
-        </div>
-      </div>
-
-      <div class="section card">
-        <div class="row">
-          <div class="small"><b>Payment:</b> ${escapeHtml(paymentFilter)}</div>
-          <div class="small"><b>Cashier:</b> ${escapeHtml(isAdmin ? cashierFilter : (user?.name || 'Cashier'))}</div>
-          <div class="small right"><b>Count:</b> ${Number(filteredTransactions.length).toLocaleString()}</div>
-        </div>
-      </div>
-
-      <div class="section">
-        <div class="section-title">Transactions</div>
-        <table>
-          <thead>
-            <tr>
-              <th>Transaction ID</th>
-              <th>Date</th>
-              <th>Cashier</th>
-              <th>Payment</th>
-              <th class="right">Total</th>
-              <th>Items</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rowsHtml || `<tr><td colspan="6" class="muted">No transactions found.</td></tr>`}
-          </tbody>
-        </table>
-      </div>
-    `;
-
-    openPrintPdf({ title, filename, bodyHtml });
+            return ([
+              String(trx.id),
+              formatDate(trx.date),
+              String(trx.cashier || ''),
+              String(trx.paymentMethod || ''),
+              pdfFormats.formatPeso(trx.total || 0),
+              itemsText
+            ]);
+          })
+        }
+      ]
+    });
   };
 
   return (
@@ -354,8 +335,8 @@ const Transactions = () => {
                             <div className="pl-9 space-y-1">
                               {item.addons.map((addon, ai) => (
                                 <div key={ai} className="flex justify-between items-center text-[10px]">
-                                  <span className="text-primary-600 font-medium">+ {addon.name}</span>
-                                  <span className="text-slate-400">₱{addon.price.toLocaleString()}</span>
+                                  <span className="text-primary-600 font-medium">+ {addon.name} x{Number(addon.quantity || 0)}</span>
+                                  <span className="text-slate-400">₱{Number(addon.price || 0).toLocaleString()}</span>
                                 </div>
                               ))}
                             </div>
@@ -383,7 +364,10 @@ const Transactions = () => {
                     </div>
                   </div>
 
-                  <button className="w-full py-4 bg-slate-900 text-white font-bold rounded-2xl hover:bg-slate-800 transition-all flex items-center justify-center gap-2">
+                  <button
+                    onClick={() => setIsReceiptOpen(true)}
+                    className="w-full py-4 bg-slate-900 text-white font-bold rounded-2xl hover:bg-slate-800 transition-all flex items-center justify-center gap-2"
+                  >
                     <Receipt size={20} />
                     Print Receipt
                   </button>
@@ -401,6 +385,32 @@ const Transactions = () => {
           </AnimatePresence>
         </div>
       </div>
+
+      <AnimatePresence>
+        {isReceiptOpen && selectedTrx && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-900/80 backdrop-blur-xl"
+              onClick={() => setIsReceiptOpen(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, y: 100 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative"
+            >
+              <ReceiptPanel
+                transaction={selectedTrx}
+                onClose={() => setIsReceiptOpen(false)}
+                onPrint={() => window.print()}
+              />
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

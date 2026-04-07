@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Calendar, Download, TrendingUp, AlertTriangle } from 'lucide-react';
 import { useApp } from '../store/AppContext';
-import { escapeHtml, openPrintPdf } from '../lib/printPdf';
+import { downloadStructuredPdf, pdfFormats } from '../lib/exportPdf';
 
 const toDateInputValue = (d) => {
   const pad = (n) => String(n).padStart(2, '0');
@@ -51,117 +51,52 @@ const Reports = () => {
   }, [ingredients]);
 
   const exportPdf = () => {
-    const title = 'Sales Report';
-    const filename = `ZwitBlakTea-report_${from}_to_${to}`;
-
-    const salesRows = filteredSales.map(s => `
-      <tr>
-        <td>${escapeHtml(s.id)}</td>
-        <td>${escapeHtml(new Date(s.created_at).toLocaleString())}</td>
-        <td>${escapeHtml(s.cashier || '')}</td>
-        <td>${escapeHtml(s.payment_method || '')}</td>
-        <td class="right">₱${Number(s.total_amount || 0).toLocaleString()}</td>
-      </tr>
-    `).join('');
-
-    const topRows = (totals.topProducts || []).map(p => `
-      <tr>
-        <td>${escapeHtml(p.name)}</td>
-        <td class="right">${Number(p.qty || 0).toLocaleString()}</td>
-      </tr>
-    `).join('');
-
-    const lowRows = (lowStockIngredients || []).map(i => `
-      <tr>
-        <td>${escapeHtml(i.name)}</td>
-        <td class="right">${Number(i.quantity || 0).toLocaleString()}</td>
-        <td>${escapeHtml(i.unit || '')}</td>
-        <td class="right">${Number(i.min_stock || 0).toLocaleString()}</td>
-      </tr>
-    `).join('');
-
-    const bodyHtml = `
-      <div class="row">
-        <div>
-          <h1>${escapeHtml(title)}</h1>
-          <div class="small muted">ZwitBlakTea</div>
-        </div>
-        <div class="right">
-          <div class="pill">${escapeHtml(from)} → ${escapeHtml(to)}</div>
-          <div class="xs muted" style="margin-top:6px;">Generated: ${escapeHtml(new Date().toLocaleString())}</div>
-        </div>
-      </div>
-
-      <div class="section card">
-        <div class="section-title">Summary</div>
-        <div class="grid">
-          <div class="card">
-            <div class="xs muted">Total Revenue</div>
-            <div style="font-weight:800; font-size:16px;">₱${Number(totals.totalRevenue || 0).toLocaleString()}</div>
-          </div>
-          <div class="card">
-            <div class="xs muted">Total Transactions</div>
-            <div style="font-weight:800; font-size:16px;">${Number(totals.totalTransactions || 0).toLocaleString()}</div>
-          </div>
-          <div class="card">
-            <div class="xs muted">Low-stock Alerts</div>
-            <div style="font-weight:800; font-size:16px;">${Number(lowStockIngredients.length).toLocaleString()}</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="section">
-        <div class="section-title">Sales</div>
-        <table>
-          <thead>
-            <tr>
-              <th>Sale ID</th>
-              <th>Date</th>
-              <th>Cashier</th>
-              <th>Payment</th>
-              <th class="right">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${salesRows || `<tr><td colspan="5" class="muted">No sales found.</td></tr>`}
-          </tbody>
-        </table>
-      </div>
-
-      <div class="section">
-        <div class="section-title">Top Products</div>
-        <table>
-          <thead>
-            <tr>
-              <th>Product</th>
-              <th class="right">Qty Sold</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${topRows || `<tr><td colspan="2" class="muted">No data.</td></tr>`}
-          </tbody>
-        </table>
-      </div>
-
-      <div class="section">
-        <div class="section-title">Low-stock Ingredients</div>
-        <table>
-          <thead>
-            <tr>
-              <th>Ingredient</th>
-              <th class="right">Remaining</th>
-              <th>Unit</th>
-              <th class="right">Min</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${lowRows || `<tr><td colspan="4" class="muted">None</td></tr>`}
-          </tbody>
-        </table>
-      </div>
-    `;
-
-    openPrintPdf({ title, filename, bodyHtml });
+    downloadStructuredPdf({
+      filename: `ZwitBlakTea-report_${from}_to_${to}`,
+      title: 'Sales Report',
+      subtitle: 'ZwitBlakTea',
+      meta: [`Date Range: ${from} to ${to}`, `Generated: ${new Date().toLocaleString()}`],
+      sections: [
+        {
+          title: 'Summary',
+          columns: ['Total Revenue', 'Total Transactions', 'Low-stock Alerts'],
+          rows: [[
+            pdfFormats.formatPeso(totals.totalRevenue || 0),
+            Number(totals.totalTransactions || 0).toLocaleString(),
+            Number(lowStockIngredients.length).toLocaleString()
+          ]]
+        },
+        {
+          title: 'Sales',
+          columns: ['Sale ID', 'Date', 'Cashier', 'Payment', 'Total'],
+          columnStyles: { 4: { halign: 'right' } },
+          rows: filteredSales.map(s => ([
+            String(s.id),
+            new Date(s.created_at).toLocaleString(),
+            String(s.cashier || ''),
+            String(s.payment_method || ''),
+            pdfFormats.formatPeso(s.total_amount || 0)
+          ]))
+        },
+        {
+          title: 'Top Products',
+          columns: ['Product', 'Qty Sold'],
+          columnStyles: { 1: { halign: 'right' } },
+          rows: (totals.topProducts || []).map(p => ([String(p.name), Number(p.qty || 0).toLocaleString()]))
+        },
+        {
+          title: 'Low-stock Ingredients',
+          columns: ['Ingredient', 'Remaining', 'Unit', 'Min'],
+          columnStyles: { 1: { halign: 'right' }, 3: { halign: 'right' } },
+          rows: (lowStockIngredients || []).map(i => ([
+            String(i.name),
+            Number(i.quantity || 0).toLocaleString(),
+            String(i.unit || ''),
+            Number(i.min_stock || 0).toLocaleString()
+          ]))
+        }
+      ]
+    });
   };
 
   return (

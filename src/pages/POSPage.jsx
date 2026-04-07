@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { motion, AnimatePresence } from 'framer-motion';
+import ReceiptPanel from '../components/ReceiptPanel';
 
 const menuCategories = [
   { id: 'milktea_classic', name: 'Milktea (Classic)', icon: '🧋', type: 'drink' },
@@ -161,6 +162,7 @@ const POSPage = () => {
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
   const [lastTransaction, setLastTransaction] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState('Cash');
+  const [cashReceived, setCashReceived] = useState('');
   const [isMobileCartOpen, setIsMobileCartOpen] = useState(false);
 
   // Customization State
@@ -171,6 +173,19 @@ const POSPage = () => {
   useEffect(() => {
     setSearchTerm(globalSearchTerm || '');
   }, [globalSearchTerm]);
+
+  useEffect(() => {
+    if (!isCheckoutModalOpen) return;
+    if (paymentMethod !== 'Cash') {
+      setCashReceived('');
+      return;
+    }
+    setCashReceived(String(cartTotal || ''));
+  }, [isCheckoutModalOpen, paymentMethod, cartTotal]);
+
+  const cashReceivedNumber = Number(cashReceived || 0);
+  const cashChange = cashReceivedNumber - Number(cartTotal || 0);
+  const cashInvalid = paymentMethod === 'Cash' && (Number.isNaN(cashReceivedNumber) || cashReceivedNumber < Number(cartTotal || 0));
 
   const availableAddons = useMemo(() => {
     const pid = selectedProduct?.id;
@@ -230,6 +245,11 @@ const POSPage = () => {
       return;
     }
 
+    if (paymentMethod === 'Cash' && cashInvalid) {
+      addNotification('Enter the cash amount received (must be at least the total).', 'warning');
+      return;
+    }
+
     const transactionData = {
       items: cart.map(item => ({
         name: item.name,
@@ -239,7 +259,9 @@ const POSPage = () => {
         addons: item.displayAddons || []
       })),
       total: cartTotal,
-      paymentMethod
+      paymentMethod,
+      cashReceived: paymentMethod === 'Cash' ? cashReceivedNumber : null,
+      changeAmount: paymentMethod === 'Cash' ? Math.max(0, cashChange) : null
     };
 
     const checkoutItems = cart.map(item => ({
@@ -255,14 +277,15 @@ const POSPage = () => {
     const result = await processCheckout({
       items: checkoutItems,
       paymentMethod,
-      referenceNumber: null
+      referenceNumber: null,
+      cashReceived: paymentMethod === 'Cash' ? cashReceivedNumber : null
     });
     if (!result.ok) {
       addNotification('Checkout failed. Please try again.', 'error');
       return;
     }
 
-    setLastTransaction({ ...transactionData, date: new Date().toISOString() });
+    setLastTransaction({ ...transactionData, id: result.sale?.id ?? null, date: new Date().toISOString() });
     
     // Reset state
     clearCart();
@@ -828,6 +851,37 @@ const POSPage = () => {
                     </button>
                   ))}
                 </div>
+
+                {paymentMethod === 'Cash' && (
+                  <div className="mt-5 rounded-3xl border border-slate-200 bg-white p-6 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-400 uppercase tracking-wide">Cash Received</span>
+                      <span className="text-xs font-bold text-slate-900">Total: ₱{Number(cartTotal || 0).toLocaleString()}</span>
+                    </div>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={cashReceived}
+                      onChange={(e) => setCashReceived(e.target.value)}
+                      className={`w-full rounded-2xl border-2 p-4 text-lg font-bold focus:ring-4 focus:ring-primary-500/10 outline-none transition-all ${
+                        cashInvalid ? 'border-rose-300 bg-rose-50/30 focus:border-rose-400' : 'border-slate-200 bg-slate-50 focus:border-primary-500'
+                      }`}
+                      placeholder="Enter amount"
+                    />
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Change</span>
+                      <span className={`text-sm font-bold ${cashInvalid ? 'text-slate-300' : 'text-emerald-600'}`}>
+                        ₱{cashInvalid ? '0' : Number(Math.max(0, cashChange)).toLocaleString()}
+                      </span>
+                    </div>
+                    {cashInvalid && (
+                      <div className="text-xs font-bold text-rose-600 uppercase tracking-wide">
+                        Cash received must be at least the total.
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-4">
@@ -839,6 +893,7 @@ const POSPage = () => {
                 </button>
                 <button 
                   onClick={handleCheckout}
+                  disabled={paymentMethod === 'Cash' && cashInvalid}
                   className="flex-2 py-5 bg-primary-600 text-white font-bold rounded-3xl uppercase tracking-wide text-sm hover:bg-primary-700 shadow-xl shadow-primary-200 transition-all flex items-center justify-center gap-3"
                 >
                   <CheckCircle2 size={20} />
@@ -881,6 +936,18 @@ const POSPage = () => {
                     <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Payment Method</span>
                     <span className="text-sm font-bold text-slate-900">{lastTransaction.paymentMethod}</span>
                   </div>
+                  {lastTransaction.paymentMethod === 'Cash' && (
+                    <>
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Cash Received</span>
+                        <span className="text-sm font-bold text-slate-900">₱{Number(lastTransaction.cashReceived || 0).toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Change</span>
+                        <span className="text-sm font-bold text-emerald-600">₱{Number(lastTransaction.changeAmount || 0).toLocaleString()}</span>
+                      </div>
+                    </>
+                  )}
                   <div className="flex justify-between items-center">
                     <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Items</span>
                     <span className="text-sm font-bold text-slate-900">{lastTransaction.items.length}</span>
@@ -920,79 +987,12 @@ const POSPage = () => {
         {isReceiptModalOpen && lastTransaction && (
           <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-slate-900/80 backdrop-blur-xl" />
-            <motion.div initial={{ opacity: 0, y: 100 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }} className="relative bg-white w-full max-w-sm max-h-[92vh] rounded-[40px] shadow-2xl overflow-hidden flex flex-col">
-              <div className="p-10 bg-emerald-50 text-emerald-600 text-center border-b border-emerald-100">
-                <div className="h-20 w-20 bg-white text-emerald-500 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-sm">
-                  <CheckCircle2 size={48} />
-                </div>
-                <h2 className="text-3xl font-bold text-slate-900 tracking-tight mb-2 uppercase">Payment Successful!</h2>
-                <p className="text-emerald-700 font-bold uppercase tracking-wide text-[10px]">Transaction Completed</p>
-              </div>
-
-              <div className="p-10 flex-1 overflow-y-auto space-y-8">
-                <div className="text-center space-y-1">
-                  <p className="text-xl font-bold text-slate-900 tracking-tight">Zwit<span className="text-primary-600">BlakTea</span></p>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wide border-b border-dashed border-slate-200 pb-2">
-                    <span>Item</span>
-                    <span>Total</span>
-                  </div>
-                  <div className="space-y-4">
-                    {lastTransaction.items.map((item, i) => (
-                      <div key={i} className="space-y-1">
-                        <div className="flex justify-between items-start gap-4">
-                          <div className="flex-1">
-                            <p className="text-xs font-bold text-slate-800 uppercase leading-tight">{item.name}</p>
-                            <p className="text-[10px] text-slate-400 font-bold uppercase">{item.quantity}x @ ₱{Number(item.price || 0).toLocaleString()}</p>
-                            <p className="text-[9px] text-slate-400 font-medium uppercase tracking-tight">{item.details}</p>
-                            {item.addons && item.addons.length > 0 && (
-                              <div className="mt-1 pl-2 border-l border-slate-200">
-                                {item.addons.map((addon, ai) => (
-                                  <p key={ai} className="text-[8px] text-primary-600 font-bold uppercase tracking-wide">+ {addon.name} x{Number(addon.quantity || 0)} (₱{Number(addon.price || 0).toLocaleString()})</p>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                          <span className="text-xs font-bold text-slate-900">₱{item.price * item.quantity}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="pt-6 border-t-2 border-dashed border-slate-100 space-y-3">
-                  <div className="flex justify-between items-center text-sm font-bold text-slate-400 uppercase">
-                    <span>Subtotal</span>
-                    <span className="text-slate-900 font-bold">₱{lastTransaction.total.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-bold text-slate-900 uppercase tracking-tight">Total Paid ({lastTransaction.paymentMethod})</span>
-                    <span className="text-2xl font-bold text-primary-600 tracking-tight">₱{lastTransaction.total.toLocaleString()}</span>
-                  </div>
-                </div>
-
-                <div className="text-center space-y-2 pt-4">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Thank you for your order!</p>
-                  <p className="text-[8px] text-slate-300 font-medium">Trans ID: {Date.now().toString().slice(-8)} | {new Date().toLocaleString()}</p>
-                </div>
-              </div>
-
-              <div className="p-10 pt-0 flex gap-3">
-                <button 
-                  onClick={() => setIsReceiptModalOpen(false)}
-                  className="flex-1 py-5 bg-slate-900 text-white font-bold rounded-3xl uppercase tracking-wide text-xs hover:bg-slate-800 transition-all shadow-xl shadow-slate-200"
-                >
-                  Done
-                </button>
-                <button 
-                  onClick={() => window.print()}
-                  className="p-5 bg-slate-100 text-slate-400 rounded-3xl hover:bg-slate-200 transition-all"
-                >
-                  <Receipt size={24} />
-                </button>
-              </div>
+            <motion.div initial={{ opacity: 0, y: 100 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }} className="relative">
+              <ReceiptPanel
+                transaction={lastTransaction}
+                onClose={() => setIsReceiptModalOpen(false)}
+                onPrint={() => window.print()}
+              />
             </motion.div>
           </div>
         )}

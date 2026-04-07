@@ -273,13 +273,23 @@ export function AppProvider({ children }) {
     if (!isSupabaseConfigured) return [];
     let { data, error } = await supabase
       .from('sales')
-      .select('id,account_id,total_amount,payment_method,reference_number,created_at,accounts(name),transactions(id,quantity,price,subtotal,product_size_id,size_name,products(name),transaction_addons(quantity,unit_price,subtotal,addons(name)))')
+      .select('id,account_id,total_amount,payment_method,reference_number,cash_received,change_amount,created_at,accounts(name),transactions(id,quantity,price,subtotal,product_size_id,size_name,products(name),transaction_addons(quantity,unit_price,subtotal,addons(name)))')
       .order('created_at', { ascending: false })
       .limit(200);
+    if (error && (String(error.message || '').toLowerCase().includes('cash_received') || String(error.message || '').toLowerCase().includes('change_amount'))) {
+      const retry = await supabase
+        .from('sales')
+        .select('id,account_id,total_amount,payment_method,reference_number,created_at,accounts(name),transactions(id,quantity,price,subtotal,product_size_id,size_name,products(name),transaction_addons(quantity,unit_price,subtotal,addons(name)))')
+        .order('created_at', { ascending: false })
+        .limit(200);
+      data = retry.data;
+      error = retry.error;
+    }
+
     if (error && (String(error.message || '').toLowerCase().includes('product_size_id') || String(error.message || '').toLowerCase().includes('size_name'))) {
       const retry = await supabase
         .from('sales')
-        .select('id,account_id,total_amount,payment_method,reference_number,created_at,accounts(name),transactions(id,quantity,price,subtotal,products(name),transaction_addons(quantity,unit_price,subtotal,addons(name)))')
+        .select('id,account_id,total_amount,payment_method,reference_number,cash_received,change_amount,created_at,accounts(name),transactions(id,quantity,price,subtotal,products(name),transaction_addons(quantity,unit_price,subtotal,addons(name)))')
         .order('created_at', { ascending: false })
         .limit(200);
       data = retry.data;
@@ -292,6 +302,8 @@ export function AppProvider({ children }) {
       total_amount: Number(s.total_amount),
       payment_method: s.payment_method,
       reference_number: s.reference_number,
+      cash_received: s.cash_received ?? null,
+      change_amount: s.change_amount ?? null,
       cashier: s.accounts?.name ?? 'Unknown',
       items: (s.transactions || []).map(t => ({
         name: t.products?.name ?? 'Unknown',
@@ -1078,7 +1090,7 @@ export function AppProvider({ children }) {
     return { ok: missing.length === 0, missing };
   };
 
-  const processCheckout = async ({ items, paymentMethod, referenceNumber }) => {
+  const processCheckout = async ({ items, paymentMethod, referenceNumber, cashReceived }) => {
     const cartItems = items || [];
     if (cartItems.length === 0) return { ok: false };
 
@@ -1111,13 +1123,19 @@ export function AppProvider({ children }) {
       totalAmount += (unitBase + addonsTotalPerUnit) * qty;
     }
 
+    const normalizedPayment = String(paymentMethod || '').toLowerCase().includes('cash') ? 'Cash' : 'GCash';
+    const cashReceivedNum = normalizedPayment === 'Cash' ? Number(cashReceived || 0) : null;
+    const changeAmount = normalizedPayment === 'Cash' ? Math.max(0, Number(cashReceivedNum || 0) - Number(totalAmount || 0)) : null;
+
     if (!isSupabaseConfigured) {
       const fakeSale = {
         id: Date.now(),
         created_at: new Date().toISOString(),
         total_amount: totalAmount,
-        payment_method: paymentMethod,
+        payment_method: normalizedPayment,
         reference_number: referenceNumber || null,
+        cash_received: cashReceivedNum,
+        change_amount: changeAmount,
         cashier: normalizedUser?.name ?? 'Cashier',
         items: cartItems.map(l => ({
           name: l.name,
@@ -1137,12 +1155,24 @@ export function AppProvider({ children }) {
       return { ok: true, sale: fakeSale };
     }
 
-    const { data: saleData, error: saleErr } = await supabase.from('sales').insert([{
+    const salePayload = {
       account_id: normalizedUser?.id ?? null,
       total_amount: totalAmount,
-      payment_method: paymentMethod,
-      reference_number: referenceNumber || null
-    }]).select();
+      payment_method: normalizedPayment,
+      reference_number: referenceNumber || null,
+      cash_received: cashReceivedNum,
+      change_amount: changeAmount
+    };
+
+    let { data: saleData, error: saleErr } = await supabase.from('sales').insert([salePayload]).select();
+    if (saleErr && (String(saleErr.message || '').toLowerCase().includes('cash_received') || String(saleErr.message || '').toLowerCase().includes('change_amount'))) {
+      const fallback = { ...salePayload };
+      delete fallback.cash_received;
+      delete fallback.change_amount;
+      const retry = await supabase.from('sales').insert([fallback]).select();
+      saleData = retry.data;
+      saleErr = retry.error;
+    }
 
     if (saleErr || !saleData?.[0]) {
       addNotification(saleErr?.message || 'Failed to save sale', 'error');
