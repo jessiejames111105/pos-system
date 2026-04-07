@@ -38,6 +38,9 @@ const ProductManagement = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [categoryName, setCategoryName] = useState('');
+  const [isCreatingCategory, setIsCreatingCategory] = useState(false);
 
   // Form state for a new product
   const initialProductState = {
@@ -56,9 +59,21 @@ const ProductManagement = () => {
   };
 
   const handleAddCategory = () => {
-    const name = prompt('Enter Category Name:');
-    if (name) {
-      createCategory(name);
+    setCategoryName('');
+    setIsCategoryModalOpen(true);
+  };
+
+  const submitCategory = async (e) => {
+    e.preventDefault();
+    if (isCreatingCategory) return;
+    const name = (categoryName || '').toString().trim();
+    if (!name) return;
+    setIsCreatingCategory(true);
+    try {
+      await createCategory(name);
+      setIsCategoryModalOpen(false);
+    } finally {
+      setIsCreatingCategory(false);
     }
   };
 
@@ -556,6 +571,72 @@ const ProductManagement = () => {
                   {isSaving ? 'Saving...' : 'Save Product'}
                 </button>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isCategoryModalOpen && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsCategoryModalOpen(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">Add Category</h3>
+                  <p className="text-xs text-slate-500 mt-1">Create a new menu category.</p>
+                </div>
+                <button
+                  onClick={() => setIsCategoryModalOpen(false)}
+                  className="p-2 hover:bg-slate-200 rounded-full text-slate-400 transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <form onSubmit={submitCategory} className="p-6 space-y-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-slate-700">Category Name</label>
+                  <input
+                    type="text"
+                    value={categoryName}
+                    onChange={(e) => setCategoryName(e.target.value)}
+                    placeholder="e.g. Milk Tea"
+                    className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all font-bold"
+                    autoFocus
+                    required
+                  />
+                </div>
+
+                <div className="pt-2 flex gap-3">
+                  <button
+                    type="button"
+                    disabled={isCreatingCategory}
+                    onClick={() => setIsCategoryModalOpen(false)}
+                    className="flex-1 px-4 py-3 border border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition-all text-xs uppercase disabled:bg-slate-100 disabled:text-slate-400"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isCreatingCategory}
+                    className="flex-1 px-4 py-3 bg-primary-600 text-white font-bold rounded-xl hover:bg-primary-700 shadow-lg shadow-primary-200 transition-all text-xs uppercase disabled:bg-slate-200 disabled:shadow-none"
+                  >
+                    {isCreatingCategory ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+              </form>
             </motion.div>
           </div>
         )}

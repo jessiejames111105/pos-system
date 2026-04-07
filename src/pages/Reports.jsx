@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Calendar, Download, TrendingUp, AlertTriangle } from 'lucide-react';
 import { useApp } from '../store/AppContext';
+import { escapeHtml, openPrintPdf } from '../lib/printPdf';
 
 const toDateInputValue = (d) => {
   const pad = (n) => String(n).padStart(2, '0');
@@ -49,30 +50,118 @@ const Reports = () => {
     return (ingredients || []).filter(i => Number(i.min_stock || 0) > 0 && Number(i.quantity || 0) <= Number(i.min_stock || 0));
   }, [ingredients]);
 
-  const downloadCsv = () => {
-    const lines = [];
-    lines.push(['Sale ID', 'Date', 'Cashier', 'Payment', 'Total'].join(','));
-    for (const s of filteredSales) {
-      lines.push([
-        s.id,
-        `"${new Date(s.created_at).toLocaleString()}"`,
-        `"${String(s.cashier || '')}"`,
-        `"${String(s.payment_method || '')}"`,
-        Number(s.total_amount || 0)
-      ].join(','));
-    }
-    lines.push('');
-    lines.push(['Top Products', 'Qty Sold'].join(','));
-    for (const p of totals.topProducts) {
-      lines.push([`"${p.name.replaceAll('"', '""')}"`, p.qty].join(','));
-    }
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `ZwitBlakTea-report_${from}_to_${to}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const exportPdf = () => {
+    const title = 'Sales Report';
+    const filename = `ZwitBlakTea-report_${from}_to_${to}`;
+
+    const salesRows = filteredSales.map(s => `
+      <tr>
+        <td>${escapeHtml(s.id)}</td>
+        <td>${escapeHtml(new Date(s.created_at).toLocaleString())}</td>
+        <td>${escapeHtml(s.cashier || '')}</td>
+        <td>${escapeHtml(s.payment_method || '')}</td>
+        <td class="right">₱${Number(s.total_amount || 0).toLocaleString()}</td>
+      </tr>
+    `).join('');
+
+    const topRows = (totals.topProducts || []).map(p => `
+      <tr>
+        <td>${escapeHtml(p.name)}</td>
+        <td class="right">${Number(p.qty || 0).toLocaleString()}</td>
+      </tr>
+    `).join('');
+
+    const lowRows = (lowStockIngredients || []).map(i => `
+      <tr>
+        <td>${escapeHtml(i.name)}</td>
+        <td class="right">${Number(i.quantity || 0).toLocaleString()}</td>
+        <td>${escapeHtml(i.unit || '')}</td>
+        <td class="right">${Number(i.min_stock || 0).toLocaleString()}</td>
+      </tr>
+    `).join('');
+
+    const bodyHtml = `
+      <div class="row">
+        <div>
+          <h1>${escapeHtml(title)}</h1>
+          <div class="small muted">ZwitBlakTea</div>
+        </div>
+        <div class="right">
+          <div class="pill">${escapeHtml(from)} → ${escapeHtml(to)}</div>
+          <div class="xs muted" style="margin-top:6px;">Generated: ${escapeHtml(new Date().toLocaleString())}</div>
+        </div>
+      </div>
+
+      <div class="section card">
+        <div class="section-title">Summary</div>
+        <div class="grid">
+          <div class="card">
+            <div class="xs muted">Total Revenue</div>
+            <div style="font-weight:800; font-size:16px;">₱${Number(totals.totalRevenue || 0).toLocaleString()}</div>
+          </div>
+          <div class="card">
+            <div class="xs muted">Total Transactions</div>
+            <div style="font-weight:800; font-size:16px;">${Number(totals.totalTransactions || 0).toLocaleString()}</div>
+          </div>
+          <div class="card">
+            <div class="xs muted">Low-stock Alerts</div>
+            <div style="font-weight:800; font-size:16px;">${Number(lowStockIngredients.length).toLocaleString()}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Sales</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Sale ID</th>
+              <th>Date</th>
+              <th>Cashier</th>
+              <th>Payment</th>
+              <th class="right">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${salesRows || `<tr><td colspan="5" class="muted">No sales found.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Top Products</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th class="right">Qty Sold</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${topRows || `<tr><td colspan="2" class="muted">No data.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Low-stock Ingredients</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Ingredient</th>
+              <th class="right">Remaining</th>
+              <th>Unit</th>
+              <th class="right">Min</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${lowRows || `<tr><td colspan="4" class="muted">None</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    openPrintPdf({ title, filename, bodyHtml });
   };
 
   return (
@@ -88,11 +177,11 @@ const Reports = () => {
         </div>
 
         <button
-          onClick={downloadCsv}
+          onClick={exportPdf}
           className="p-4 bg-white border border-slate-200 text-slate-600 rounded-2xl hover:bg-slate-50 transition-all shadow-sm flex items-center gap-2 font-bold uppercase tracking-wide text-[10px]"
         >
           <Download size={18} />
-          Export CSV
+          Export PDF
         </button>
       </div>
 

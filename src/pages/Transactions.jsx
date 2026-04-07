@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { motion, AnimatePresence } from 'framer-motion';
+import { escapeHtml, openPrintPdf } from '../lib/printPdf';
 
 const Transactions = () => {
   const { sales, user, globalSearchTerm, setGlobalSearchTerm } = useApp();
@@ -90,7 +91,71 @@ const Transactions = () => {
   };
 
   const handleExport = () => {
-    alert('Generating PDF Report... (Mock Action)');
+    const title = 'Transactions Report';
+    const filename = `ZwitBlakTea-transactions_${fromDate || 'all'}_to_${toDate || 'all'}`;
+    const rowsHtml = (filteredTransactions || []).map(trx => {
+      const itemsHtml = (trx.items || []).map(i => {
+        const addons = (i.addons || [])
+          .filter(a => Number(a.quantity || 0) > 0)
+          .map(a => `${a.name} x${Number(a.quantity || 0)}`)
+          .join(', ');
+        const details = i.details ? ` (${i.details})` : '';
+        return `${escapeHtml(i.name)}${escapeHtml(details)} x${Number(i.quantity || 0)}${addons ? ` <span class="muted xs">[+ ${escapeHtml(addons)}]</span>` : ''}`;
+      }).join('<br/>');
+
+      return `
+        <tr>
+          <td>${escapeHtml(trx.id)}</td>
+          <td>${escapeHtml(formatDate(trx.date))}</td>
+          <td>${escapeHtml(trx.cashier || '')}</td>
+          <td>${escapeHtml(trx.paymentMethod || '')}</td>
+          <td class="right">₱${Number(trx.total || 0).toLocaleString()}</td>
+          <td>${itemsHtml}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const bodyHtml = `
+      <div class="row">
+        <div>
+          <h1>${escapeHtml(title)}</h1>
+          <div class="small muted">ZwitBlakTea</div>
+        </div>
+        <div class="right">
+          <div class="pill">${escapeHtml(fromDate || 'All')} → ${escapeHtml(toDate || 'All')}</div>
+          <div class="xs muted" style="margin-top:6px;">Generated: ${escapeHtml(new Date().toLocaleString())}</div>
+        </div>
+      </div>
+
+      <div class="section card">
+        <div class="row">
+          <div class="small"><b>Payment:</b> ${escapeHtml(paymentFilter)}</div>
+          <div class="small"><b>Cashier:</b> ${escapeHtml(isAdmin ? cashierFilter : (user?.name || 'Cashier'))}</div>
+          <div class="small right"><b>Count:</b> ${Number(filteredTransactions.length).toLocaleString()}</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Transactions</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Transaction ID</th>
+              <th>Date</th>
+              <th>Cashier</th>
+              <th>Payment</th>
+              <th class="right">Total</th>
+              <th>Items</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml || `<tr><td colspan="6" class="muted">No transactions found.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    openPrintPdf({ title, filename, bodyHtml });
   };
 
   return (
@@ -106,7 +171,7 @@ const Transactions = () => {
             className="btn bg-white border border-slate-200 text-slate-700 flex items-center gap-2 hover:bg-slate-50 transition-all shadow-sm"
           >
             <Download size={18} />
-            Export Report
+            Export PDF
           </button>
         )}
       </div>
