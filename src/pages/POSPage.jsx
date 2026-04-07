@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { 
   Search, 
   Plus, 
@@ -140,6 +140,8 @@ const POSPage = () => {
     cartTotal,
     processCheckout,
     addNotification,
+    globalSearchTerm,
+    setGlobalSearchTerm,
     checkProductAvailability,
     checkCartAvailability,
     categories,
@@ -165,6 +167,10 @@ const POSPage = () => {
   const [customSize, setCustomSize] = useState('');
   const [customSugar, setCustomSugar] = useState('100%');
   const [customAddons, setCustomAddons] = useState([]);
+
+  useEffect(() => {
+    setSearchTerm(globalSearchTerm || '');
+  }, [globalSearchTerm]);
 
   const availableAddons = useMemo(() => {
     const pid = selectedProduct?.id;
@@ -313,12 +319,26 @@ const POSPage = () => {
   }, [products, productSizes]);
 
   const filteredProducts = useMemo(() => {
-    if (!selectedCategory) return [];
     const term = String(searchTerm || '').toLowerCase();
-    return posProducts
-      .filter(p => Number(p.category_id) === Number(selectedCategory.id))
-      .filter(p => p.name.toLowerCase().includes(term));
+    const base = selectedCategory
+      ? posProducts.filter(p => Number(p.category_id) === Number(selectedCategory.id))
+      : posProducts;
+    if (!term) {
+      return selectedCategory ? base : [];
+    }
+    return base.filter(p => p.name.toLowerCase().includes(term));
   }, [posProducts, searchTerm, selectedCategory]);
+
+  useEffect(() => {
+    const term = String(searchTerm || '').trim();
+    if (term) {
+      setCurrentView('products');
+      return;
+    }
+    if (!selectedCategory) {
+      setCurrentView('categories');
+    }
+  }, [searchTerm, selectedCategory]);
 
   return (
     <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-140px)] lg:h-[calc(100vh-120px)] relative">
@@ -327,7 +347,7 @@ const POSPage = () => {
         {/* Header with Search & Navigation */}
         <div className="p-4 lg:p-6 border-b border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4 bg-white sticky top-0 z-10">
           <div className="flex items-center gap-4 w-full sm:w-auto">
-            {currentView === 'products' && (
+            {currentView === 'products' && selectedCategory && (
               <button 
                 onClick={() => setCurrentView('categories')}
                 className="p-2 rounded-xl bg-slate-50 text-slate-600 hover:bg-primary-50 hover:text-primary-600 transition-all"
@@ -336,7 +356,7 @@ const POSPage = () => {
               </button>
             )}
             <h1 className="text-xl lg:text-2xl font-bold text-slate-900 tracking-tight uppercase truncate">
-              {currentView === 'categories' ? 'Menu Categories' : selectedCategory?.name}
+              {currentView === 'categories' ? 'Menu Categories' : (selectedCategory?.name || 'Search Results')}
             </h1>
           </div>
           
@@ -346,7 +366,10 @@ const POSPage = () => {
               type="text" 
               placeholder="Quick Search..." 
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setGlobalSearchTerm(e.target.value);
+              }}
               className="w-full sm:w-64 lg:w-80 rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-12 pr-4 text-sm font-medium focus:ring-4 focus:ring-primary-500/10 focus:border-primary-500 outline-none transition-all"
             />
           </div>
@@ -897,7 +920,7 @@ const POSPage = () => {
         {isReceiptModalOpen && lastTransaction && (
           <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-slate-900/80 backdrop-blur-xl" />
-            <motion.div initial={{ opacity: 0, y: 100 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }} className="relative bg-white w-full max-w-sm rounded-[40px] shadow-2xl overflow-hidden flex flex-col">
+            <motion.div initial={{ opacity: 0, y: 100 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }} className="relative bg-white w-full max-w-sm max-h-[92vh] rounded-[40px] shadow-2xl overflow-hidden flex flex-col">
               <div className="p-10 bg-emerald-50 text-emerald-600 text-center border-b border-emerald-100">
                 <div className="h-20 w-20 bg-white text-emerald-500 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-sm">
                   <CheckCircle2 size={48} />
@@ -906,10 +929,9 @@ const POSPage = () => {
                 <p className="text-emerald-700 font-bold uppercase tracking-wide text-[10px]">Transaction Completed</p>
               </div>
 
-              <div className="p-10 flex-1 overflow-y-auto space-y-8 scrollbar-hide">
+              <div className="p-10 flex-1 overflow-y-auto space-y-8">
                 <div className="text-center space-y-1">
-                  <p className="text-xl font-bold text-slate-900 tracking-tight">POS<span className="text-primary-600">Flex</span></p>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Main Branch - Quezon City</p>
+                  <p className="text-xl font-bold text-slate-900 tracking-tight">Zwit<span className="text-primary-600">BlakTea</span></p>
                 </div>
 
                 <div className="space-y-4">
@@ -923,12 +945,12 @@ const POSPage = () => {
                         <div className="flex justify-between items-start gap-4">
                           <div className="flex-1">
                             <p className="text-xs font-bold text-slate-800 uppercase leading-tight">{item.name}</p>
-                            <p className="text-[10px] text-slate-400 font-bold uppercase">{item.quantity}x @ ₱{item.price}</p>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase">{item.quantity}x @ ₱{Number(item.price || 0).toLocaleString()}</p>
                             <p className="text-[9px] text-slate-400 font-medium uppercase tracking-tight">{item.details}</p>
                             {item.addons && item.addons.length > 0 && (
                               <div className="mt-1 pl-2 border-l border-slate-200">
                                 {item.addons.map((addon, ai) => (
-                                  <p key={ai} className="text-[8px] text-primary-600 font-bold uppercase tracking-wide">+ {addon.name} (₱{addon.price})</p>
+                                  <p key={ai} className="text-[8px] text-primary-600 font-bold uppercase tracking-wide">+ {addon.name} x{Number(addon.quantity || 0)} (₱{Number(addon.price || 0).toLocaleString()})</p>
                                 ))}
                               </div>
                             )}

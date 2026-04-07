@@ -23,6 +23,7 @@ export function AppProvider({ children }) {
   const [accounts, setAccounts] = useState([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [notifications, setNotifications] = useState([]);
+  const [globalSearchTerm, setGlobalSearchTerm] = useState('');
   const [categories, setCategories] = useState([]);
   const [products, setProducts] = useState([]);
   const [ingredients, setIngredients] = useState([]);
@@ -1284,6 +1285,8 @@ export function AppProvider({ children }) {
     salesReport,
     notifications,
     addNotification,
+    globalSearchTerm,
+    setGlobalSearchTerm,
     checkProductAvailability,
     checkCartAvailability,
     processCheckout,

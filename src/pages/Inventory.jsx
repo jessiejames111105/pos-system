@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { 
   Plus,
   Search, 
@@ -28,7 +28,9 @@ const Inventory = () => {
     updateAddon,
     deleteAddon,
     setAddonBOM,
-    user
+    user,
+    globalSearchTerm,
+    setGlobalSearchTerm
   } = useApp();
   const [activeTab, setActiveTab] = useState('ingredients');
   const [searchTerm, setSearchTerm] = useState('');
@@ -44,6 +46,10 @@ const Inventory = () => {
   const [addonFormBomLines, setAddonFormBomLines] = useState([]);
   
   const isAdmin = user?.role === 'admin';
+
+  useEffect(() => {
+    setSearchTerm(globalSearchTerm || '');
+  }, [globalSearchTerm]);
 
   const initialIngredientForm = {
     name: '',
@@ -253,7 +259,10 @@ const Inventory = () => {
               placeholder={activeTab === 'ingredients' ? 'Search ingredients...' : 'Search add-ons...'}
               className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all"
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setGlobalSearchTerm(e.target.value);
+              }}
             />
           </div>
         </div>

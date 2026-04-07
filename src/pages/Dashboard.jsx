@@ -17,11 +17,16 @@ import {
 import { useApp } from '../store/AppContext';
 import { motion } from 'framer-motion';
 
-const StatCard = ({ title, value, change, icon: Icon, trend }) => (
-  <motion.div 
+const StatCard = ({ title, value, change, icon: Icon, trend, subtitle, onClick }) => (
+  <motion.div
     initial={{ opacity: 0, y: 20 }}
     animate={{ opacity: 1, y: 0 }}
-    className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm relative overflow-hidden group hover:shadow-xl hover:shadow-primary-100/20 transition-all duration-500"
+    onClick={onClick}
+    role={onClick ? 'button' : undefined}
+    tabIndex={onClick ? 0 : undefined}
+    className={`bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm relative overflow-hidden group hover:shadow-xl hover:shadow-primary-100/20 transition-all duration-500 ${
+      onClick ? 'cursor-pointer focus:outline-none focus:ring-4 focus:ring-primary-500/10' : ''
+    }`}
   >
     <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:scale-110 transition-transform duration-500">
       <Icon size={80} className="text-primary-600" />
@@ -44,6 +49,9 @@ const StatCard = ({ title, value, change, icon: Icon, trend }) => (
       </div>
       <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">{title}</p>
       <h3 className="text-2xl lg:text-3xl font-bold text-slate-900 mt-2 tracking-tight">{value}</h3>
+      {subtitle ? (
+        <p className="mt-2 text-[10px] font-bold uppercase tracking-wide text-slate-500 line-clamp-2">{subtitle}</p>
+      ) : null}
     </div>
   </motion.div>
 );
@@ -52,6 +60,7 @@ const Dashboard = () => {
   const { user, dailySales, salesReport, sales, ingredients, categories, products } = useApp();
   const [reportType, setReportType] = useState('Weekly'); // Daily, Weekly, Monthly
   const [topCategoryFilter, setTopCategoryFilter] = useState('all');
+  const [isLowStockOpen, setIsLowStockOpen] = useState(false);
   const isAdmin = user?.role === 'admin';
 
   const rangeDays = reportType === 'Monthly' ? 30 : reportType === 'Daily' ? 1 : 7;
@@ -79,6 +88,13 @@ const Dashboard = () => {
   const avgTransaction = todayOrders > 0 ? Number(dailySales || 0) / todayOrders : 0;
   const lowStockIngredients = (ingredients || []).filter(i => Number(i.min_stock || 0) > 0 && Number(i.quantity || 0) <= Number(i.min_stock || 0));
   const periodAvgTransaction = periodOrders > 0 ? periodRevenue / periodOrders : 0;
+  const lowStockSubtitle = useMemo(() => {
+    if (lowStockIngredients.length === 0) return 'None';
+    const names = lowStockIngredients.map(i => i.name).filter(Boolean);
+    const shown = names.slice(0, 3);
+    const rest = names.length - shown.length;
+    return rest > 0 ? `${shown.join(', ')} +${rest}` : shown.join(', ');
+  }, [lowStockIngredients]);
 
   const startDate = useMemo(() => {
     const d = new Date();
@@ -181,7 +197,15 @@ const Dashboard = () => {
           trend={ordersChange !== null && ordersChange >= 0 ? 'up' : 'down'}
           icon={ShoppingBag}
         />
-        <StatCard title="Low-stock Alerts" value={lowStockIngredients.length.toLocaleString()} change={null} trend="down" icon={AlertTriangle} />
+        <StatCard
+          title="Low-stock Alerts"
+          value={lowStockIngredients.length.toLocaleString()}
+          subtitle={lowStockSubtitle}
+          change={null}
+          trend="down"
+          icon={AlertTriangle}
+          onClick={isAdmin ? () => setIsLowStockOpen(true) : undefined}
+        />
         <StatCard title="Avg Transaction" value={`₱${Number(isAdmin ? periodAvgTransaction : avgTransaction).toFixed(2)}`} change={null} trend="up" icon={Clock} />
       </div>
 
@@ -279,6 +303,79 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
+
+      {isAdmin && isLowStockOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            onClick={() => setIsLowStockOpen(false)}
+          />
+          <div className="relative w-full max-w-lg bg-white rounded-[32px] shadow-2xl overflow-hidden border border-slate-200">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Low-stock Ingredients</h3>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mt-1">
+                  Ingredients at or below minimum stock
+                </p>
+              </div>
+              <button
+                onClick={() => setIsLowStockOpen(false)}
+                className="p-2 hover:bg-slate-200 rounded-full text-slate-400 transition-colors"
+              >
+                <span className="text-xl leading-none">×</span>
+              </button>
+            </div>
+
+            <div className="max-h-[70vh] overflow-y-auto">
+              {lowStockIngredients.length === 0 ? (
+                <div className="p-8 text-center text-slate-500 font-bold">No low-stock ingredients.</div>
+              ) : (
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-white text-slate-500 text-[10px] font-bold uppercase tracking-wider border-b border-slate-100">
+                      <th className="px-6 py-4">Ingredient</th>
+                      <th className="px-6 py-4">Remaining</th>
+                      <th className="px-6 py-4">Min</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {lowStockIngredients
+                      .slice()
+                      .sort((a, b) => {
+                        const aPct = Number(a.min_stock || 0) > 0 ? Number(a.quantity || 0) / Number(a.min_stock || 1) : 0;
+                        const bPct = Number(b.min_stock || 0) > 0 ? Number(b.quantity || 0) / Number(b.min_stock || 1) : 0;
+                        return aPct - bPct;
+                      })
+                      .map(ing => (
+                        <tr key={ing.id} className="hover:bg-slate-50/50">
+                          <td className="px-6 py-4">
+                            <div className="font-bold text-slate-900">{ing.name}</div>
+                            <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mt-1">{ing.unit}</div>
+                          </td>
+                          <td className="px-6 py-4 font-bold text-rose-600">
+                            {Number(ing.quantity || 0).toLocaleString()}
+                          </td>
+                          <td className="px-6 py-4 font-bold text-slate-700">
+                            {Number(ing.min_stock || 0).toLocaleString()}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <div className="p-6 border-t border-slate-100 bg-white flex justify-end">
+              <button
+                onClick={() => setIsLowStockOpen(false)}
+                className="px-5 py-3 rounded-xl bg-slate-900 text-white font-bold text-xs uppercase tracking-wide hover:bg-slate-800 transition-all"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   UserPlus, 
   Shield, 
@@ -15,7 +15,7 @@ import { useApp } from '../store/AppContext';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const UserManagement = () => {
-  const { accounts, createAccount, deleteAccount, user: currentUser } = useApp();
+  const { accounts, createAccount, deleteAccount, user: currentUser, globalSearchTerm, setGlobalSearchTerm } = useApp();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSuccessOpen, setIsSuccessOpen] = useState(false);
   const [successUser, setSuccessUser] = useState(null);
@@ -30,6 +30,10 @@ const UserManagement = () => {
     role: 'cashier',
     password: ''
   });
+
+  useEffect(() => {
+    setSearchTerm(globalSearchTerm || '');
+  }, [globalSearchTerm]);
 
   const handleOpenModal = () => {
     setFormData({ name: '', role: 'cashier', password: '' });
@@ -110,31 +114,24 @@ const UserManagement = () => {
               placeholder="Search by name or role..."
               className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all shadow-sm"
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setGlobalSearchTerm(e.target.value);
+                }}
             />
           </div>
-          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-2 py-1.5 shadow-sm">
-            <div className="flex items-center gap-2 text-slate-400 px-2">
-              <Filter size={16} />
-            </div>
-            {[
-              { key: 'all', label: 'All' },
-              { key: 'admin', label: 'Admin' },
-              { key: 'cashier', label: 'Cashier' }
-            ].map(opt => (
-              <button
-                key={opt.key}
-                onClick={() => setRoleFilter(opt.key)}
-                className={`px-3 py-2 rounded-lg text-[10px] font-bold uppercase tracking-wide transition-all ${
-                  roleFilter === opt.key
-                    ? 'bg-primary-600 text-white shadow'
-                    : 'text-slate-500 hover:bg-slate-50'
-                }`}
+            <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm">
+              <Filter size={16} className="text-slate-400" />
+              <select
+                value={roleFilter}
+                onChange={(e) => setRoleFilter(e.target.value)}
+                className="px-3 py-2 rounded-lg border border-slate-200 bg-white font-bold text-slate-900 text-[10px] uppercase tracking-wide"
               >
-                {opt.label}
-              </button>
-            ))}
-          </div>
+                <option value="all">All</option>
+                <option value="admin">Admin</option>
+                <option value="cashier">Cashier</option>
+              </select>
+            </div>
         </div>
         <div className="bg-white px-4 py-2.5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
           <span className="text-xs font-bold text-slate-400 uppercase">Total Users</span>

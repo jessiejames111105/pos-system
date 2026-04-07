@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { 
   Search, 
   Download, 
@@ -14,11 +14,19 @@ import { useApp } from '../store/AppContext';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const Transactions = () => {
-  const { sales, user } = useApp();
+  const { sales, user, globalSearchTerm, setGlobalSearchTerm } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTrx, setSelectedTrx] = useState(null);
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [paymentFilter, setPaymentFilter] = useState('all'); // all | Cash | GCash
+  const [cashierFilter, setCashierFilter] = useState('all');
 
   const isAdmin = user?.role === 'admin';
+
+  useEffect(() => {
+    setSearchTerm(globalSearchTerm || '');
+  }, [globalSearchTerm]);
 
   const transactions = useMemo(() => {
     return (sales || []).map(s => ({
@@ -42,10 +50,34 @@ const Transactions = () => {
     }));
   }, [sales]);
 
-  const filteredTransactions = transactions.filter(trx =>
-    String(trx.id || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    String(trx.cashier || '').toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredTransactions = useMemo(() => {
+    const q = String(searchTerm || '').toLowerCase();
+    const from = fromDate ? new Date(`${fromDate}T00:00:00`) : null;
+    const to = toDate ? new Date(`${toDate}T23:59:59`) : null;
+
+    return (transactions || []).filter(trx => {
+      if (paymentFilter !== 'all' && trx.paymentMethod !== paymentFilter) return false;
+      if (isAdmin && cashierFilter !== 'all' && String(trx.cashier || '') !== cashierFilter) return false;
+
+      const dt = trx.date ? new Date(trx.date) : null;
+      if (from && dt && dt < from) return false;
+      if (to && dt && dt > to) return false;
+
+      if (!q) return true;
+      if (String(trx.id || '').toLowerCase().includes(q)) return true;
+      if (String(trx.cashier || '').toLowerCase().includes(q)) return true;
+      if (String(trx.paymentMethod || '').toLowerCase().includes(q)) return true;
+      return (trx.items || []).some(i => String(i.name || '').toLowerCase().includes(q));
+    });
+  }, [transactions, searchTerm, fromDate, toDate, paymentFilter, cashierFilter, isAdmin]);
+
+  const cashierOptions = useMemo(() => {
+    const set = new Set();
+    for (const t of transactions || []) {
+      if (t.cashier) set.add(t.cashier);
+    }
+    return Array.from(set).sort((a, b) => String(a).localeCompare(String(b)));
+  }, [transactions]);
 
   const formatDate = (dateStr) => {
     if (!dateStr) return '—';
@@ -88,18 +120,58 @@ const Transactions = () => {
             placeholder="Search by Order ID or Cashier..."
             className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all"
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setGlobalSearchTerm(e.target.value);
+            }}
           />
         </div>
-        <div className="flex gap-2 w-full md:w-auto">
-          <button className="flex-1 md:flex-none px-4 py-2 bg-slate-50 border border-slate-200 text-slate-600 rounded-xl flex items-center justify-center gap-2 hover:bg-slate-100 transition-all">
-            <Calendar size={18} />
-            Date Range
-          </button>
-          <button className="flex-1 md:flex-none px-4 py-2 bg-slate-50 border border-slate-200 text-slate-600 rounded-xl flex items-center justify-center gap-2 hover:bg-slate-100 transition-all">
-            <Filter size={18} />
-            Filters
-          </button>
+        <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
+          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+            <Calendar size={18} className="text-slate-400" />
+            <input
+              type="date"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              className="bg-transparent font-bold text-slate-700 text-xs outline-none"
+            />
+            <span className="text-slate-300 font-bold">—</span>
+            <input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              className="bg-transparent font-bold text-slate-700 text-xs outline-none"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2">
+            <Filter size={18} className="text-slate-400" />
+            <select
+              value={paymentFilter}
+              onChange={(e) => setPaymentFilter(e.target.value)}
+              className="bg-white font-bold text-slate-900 text-xs uppercase tracking-wide outline-none"
+            >
+              <option value="all">All Payments</option>
+              <option value="Cash">Cash</option>
+              <option value="GCash">GCash</option>
+            </select>
+          </div>
+
+          {isAdmin && (
+            <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2">
+              <User size={18} className="text-slate-400" />
+              <select
+                value={cashierFilter}
+                onChange={(e) => setCashierFilter(e.target.value)}
+                className="bg-white font-bold text-slate-900 text-xs uppercase tracking-wide outline-none"
+              >
+                <option value="all">All Cashiers</option>
+                {cashierOptions.map(c => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       </div>
 

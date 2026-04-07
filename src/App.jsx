@@ -56,11 +56,6 @@ function AppRoutes() {
           <Transactions />
         </ProtectedRoute>
       } />
-      <Route path="/sales" element={
-        <ProtectedRoute>
-          <div className="p-8 text-center bg-white rounded-2xl border border-slate-200">Daily Sales Reports</div>
-        </ProtectedRoute>
-      } />
       <Route path="/reports" element={
         <ProtectedRoute roleRequired="admin">
           <Reports />

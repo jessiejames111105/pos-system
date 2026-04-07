@@ -12,7 +12,6 @@ import {
   Menu,
   X,
   Bell,
-  Search,
   User,
   History,
   TrendingUp,
@@ -29,7 +28,6 @@ const navItems = [
   { name: 'Dashboard', icon: LayoutDashboard, path: '/', role: 'admin' },
   { name: 'Take Order', icon: ShoppingCart, path: '/pos', role: 'cashier' },
   { name: 'Transactions', icon: History, path: '/transactions', role: 'cashier' },
-  { name: 'Daily Sales', icon: TrendingUp, path: '/sales', role: 'cashier' },
   { name: 'Product Management', icon: Package, path: '/products', role: 'admin' },
   { name: 'Inventory', icon: Package, path: '/inventory', role: 'admin' },
   { name: 'User Management', icon: Users, path: '/customers', role: 'admin' },
@@ -144,15 +142,6 @@ const Navbar = () => {
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-none">Today's Sales</span>
               <span className="text-lg font-bold text-primary-600">₱{dailySales.toLocaleString()}</span>
             </div>
-            <div className="h-8 w-px bg-slate-200"></div>
-            <div className="relative group">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-              <input 
-                type="text" 
-                placeholder="Search products/orders..." 
-                className="w-64 rounded-xl border border-slate-200 bg-slate-50 py-2 pl-10 pr-4 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 transition-all"
-              />
-            </div>
           </div>
         </div>
 
@@ -230,7 +219,7 @@ const Navbar = () => {
             <div className="mb-8 flex items-center justify-between">
               <div>
                 <span className="text-xl font-bold text-slate-900 tracking-tight">
-                  POS<span className="text-primary-600">Flex</span>
+                  Zwit<span className="text-primary-600">BlakTea</span>
                 </span>
                 <span className="text-xs text-slate-400 font-bold uppercase">{user?.role}</span>
               </div>
