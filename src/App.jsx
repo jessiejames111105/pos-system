@@ -30,10 +30,10 @@ function AppRoutes() {
 
   return (
     <Routes>
-      <Route path="/login" element={!user ? <LoginPage /> : <Navigate to="/" replace />} />
+      <Route path="/login" element={!user ? <LoginPage /> : <Navigate to={user?.role === 'cashier' ? "/pos" : "/"} replace />} />
       <Route path="/" element={
         <ProtectedRoute>
-          <Dashboard />
+          {user?.role === 'cashier' ? <Navigate to="/pos" replace /> : <Dashboard />}
         </ProtectedRoute>
       } />
       <Route path="/pos" element={
@@ -47,7 +47,7 @@ function AppRoutes() {
         </ProtectedRoute>
       } />
       <Route path="/inventory" element={
-        <ProtectedRoute>
+        <ProtectedRoute roleRequired="admin">
           <Inventory />
         </ProtectedRoute>
       } />

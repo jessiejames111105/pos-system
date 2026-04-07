@@ -288,32 +288,62 @@ export function AppProvider({ children }) {
     if (!isSupabaseConfigured) return [];
     const { data, error } = await supabase
       .from('accounts')
-      .select('id,name,email,role,created_at')
+      .select('*')
       .order('created_at', { ascending: false });
     if (error) return [];
     setAccounts(data || []);
     return data || [];
   };
 
-  const createAccount = async ({ name, email, password, role }) => {
+  const generateAccountId = async (role) => {
+    const prefix = role === 'admin' ? 'ADM' : 'CSH';
+    if (!isSupabaseConfigured) {
+      return `${prefix}${String(Date.now()).slice(-6)}`;
+    }
+
+    for (let tries = 0; tries < 5; tries++) {
+      const candidate = `${prefix}${Math.floor(100000 + Math.random() * 900000)}`;
+      const { data, error } = await supabase.from('accounts').select('id').eq('account_id', candidate).limit(1);
+      if (error) break;
+      if (!data?.[0]) return candidate;
+    }
+
+    return `${prefix}${String(Date.now()).slice(-6)}`;
+  };
+
+  const createAccount = async ({ name, password, role }) => {
+    const normalizedRole = role === 'admin' ? 'admin' : 'cashier';
+    const accountId = await generateAccountId(normalizedRole);
     const payload = {
       name: (name || '').toString().trim(),
-      email: (email || '').toString().trim().toLowerCase(),
       password: (password || '').toString(),
-      role: role === 'admin' ? 'admin' : 'cashier'
+      role: normalizedRole,
+      account_id: accountId,
+      email: accountId
     };
-    if (!payload.name || !payload.email || !payload.password) {
-      addNotification('Please fill out name, email, and password.', 'warning');
+    if (!payload.name || !payload.password) {
+      addNotification('Please fill out name and password.', 'warning');
       return { ok: false };
     }
 
     if (!isSupabaseConfigured) {
-      const local = { id: `demo-${Date.now()}`, name: payload.name, email: payload.email, role: payload.role };
+      const local = { id: `demo-${Date.now()}`, name: payload.name, role: payload.role, account_id: payload.account_id };
       setAccounts(prev => [local, ...prev]);
       return { ok: true, account: local };
     }
 
-    const { data, error } = await supabase.from('accounts').insert([payload]).select('id,name,email,role,created_at');
+    let { data, error } = await supabase.from('accounts').insert([payload]).select('*');
+    if (error && String(error.message || '').toLowerCase().includes('account_id')) {
+      const fallback = {
+        name: payload.name,
+        password: payload.password,
+        role: payload.role,
+        email: payload.email
+      };
+      const retry = await supabase.from('accounts').insert([fallback]).select('*');
+      data = retry.data;
+      error = retry.error;
+    }
     if (error) {
       addNotification(error.message || 'Failed to create account.', 'error');
       return { ok: false };
@@ -347,8 +377,8 @@ export function AppProvider({ children }) {
       if (!isSupabaseConfigured) {
         addNotification('Supabase is not configured. Running in demo mode.', 'warning');
         setAccounts([
-          { id: 'demo-admin', name: 'Admin User', email: 'admin@gmail.com', role: 'admin' },
-          { id: 'demo-cashier', name: 'Cashier User', email: 'cashier@gmail.com', role: 'cashier' }
+          { id: 'demo-admin', name: 'Admin User', account_id: 'ADM000001', role: 'admin' },
+          { id: 'demo-cashier', name: 'Cashier User', account_id: 'CSH000001', role: 'cashier' }
         ]);
         setCategories([
           { id: 1, name: 'Drinks' },
@@ -402,33 +432,44 @@ export function AppProvider({ children }) {
     fetchInitialData();
   }, []);
 
-  const login = async ({ email, password }) => {
-    const normalizedEmail = (email || '').toString().trim().toLowerCase();
+  const login = async ({ accountId, password }) => {
+    const normalizedAccountId = (accountId || '').toString().trim().toUpperCase();
     const normalizedPassword = (password || '').toString();
-    if (!normalizedEmail || !normalizedPassword) return { success: false, message: 'Enter email and password' };
+    if (!normalizedAccountId || !normalizedPassword) return { success: false, message: 'Enter account ID and password' };
 
     if (!isSupabaseConfigured) {
-      const demoAdmin = normalizedEmail === 'admin@gmail.com' && normalizedPassword === 'admin123';
-      const demoCashier = normalizedEmail === 'cashier@gmail.com' && normalizedPassword === 'cashier123';
-      if (!demoAdmin && !demoCashier) return { success: false, message: 'Invalid email or password' };
+      const demoAdmin = normalizedAccountId === 'ADM000001' && normalizedPassword === 'admin123';
+      const demoCashier = normalizedAccountId === 'CSH000001' && normalizedPassword === 'cashier123';
+      if (!demoAdmin && !demoCashier) return { success: false, message: 'Invalid account ID or password' };
       const demoUser = demoAdmin
-        ? { id: 'demo-admin', name: 'Admin User', email: 'admin@gmail.com', role: 'admin' }
-        : { id: 'demo-cashier', name: 'Cashier User', email: 'cashier@gmail.com', role: 'cashier' };
+        ? { id: 'demo-admin', name: 'Admin User', account_id: 'ADM000001', role: 'admin' }
+        : { id: 'demo-cashier', name: 'Cashier User', account_id: 'CSH000001', role: 'cashier' };
       setUser(demoUser);
       localStorage.setItem('pos_user', JSON.stringify(demoUser));
       return { success: true, role: demoUser.role };
     }
 
     try {
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('accounts')
-        .select('id,name,email,role')
-        .eq('email', normalizedEmail)
+        .select('id,name,role,account_id,email')
+        .eq('account_id', normalizedAccountId)
         .eq('password', normalizedPassword)
         .limit(1);
+
+      if (error && String(error.message || '').toLowerCase().includes('account_id')) {
+        const retry = await supabase
+          .from('accounts')
+          .select('id,name,role,email')
+          .eq('email', normalizedAccountId)
+          .eq('password', normalizedPassword)
+          .limit(1);
+        data = retry.data;
+        error = retry.error;
+      }
       if (error) throw error;
       const found = data && data[0];
-      if (!found) return { success: false, message: 'Invalid email or password' };
+      if (!found) return { success: false, message: 'Invalid account ID or password' };
       setUser(found);
       localStorage.setItem('pos_user', JSON.stringify(found));
       return { success: true, role: found.role };

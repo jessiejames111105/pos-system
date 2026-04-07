@@ -16,9 +16,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
       manifest: {
-        name: 'POSFlex Premium',
-        short_name: 'POSFlex',
-        description: 'Premium Cross-Platform POS and Inventory Management System',
+        name: 'ZwitBlakTea',
+        short_name: 'ZwitBlakTea',
+        description: 'Cross-Platform POS and Inventory Management System',
         theme_color: '#C9A854',
         icons: [
           {

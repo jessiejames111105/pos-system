@@ -5,6 +5,7 @@ import {
   AlertTriangle, 
   Edit2,
   Trash2,
+  AlertOctagon,
   X,
   CheckCircle2,
   Package,
@@ -39,6 +40,7 @@ const Inventory = () => {
   const [editingAddonBom, setEditingAddonBom] = useState(null);
   const [addonBomLines, setAddonBomLines] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
   
   const isAdmin = user?.role === 'admin';
 
@@ -177,6 +179,16 @@ const Inventory = () => {
     }
   };
 
+  const confirmDelete = async () => {
+    if (!deleteTarget?.id) return;
+    if (deleteTarget.kind === 'ingredient') {
+      await deleteIngredient(deleteTarget.id);
+    } else if (deleteTarget.kind === 'addon') {
+      await deleteAddon(deleteTarget.id);
+    }
+    setDeleteTarget(null);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -300,7 +312,7 @@ const Inventory = () => {
                               <Edit2 size={16} />
                             </button>
                             <button
-                              onClick={() => deleteIngredient(ing.id)}
+                              onClick={() => setDeleteTarget({ kind: 'ingredient', id: ing.id, name: ing.name })}
                               className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
                             >
                               <Trash2 size={16} />
@@ -341,7 +353,7 @@ const Inventory = () => {
                             <Settings2 size={16} />
                           </button>
                           <button
-                            onClick={() => deleteAddon(a.id)}
+                            onClick={() => setDeleteTarget({ kind: 'addon', id: a.id, name: a.name })}
                             className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
                           >
                             <Trash2 size={16} />
@@ -651,6 +663,70 @@ const Inventory = () => {
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {deleteTarget && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setDeleteTarget(null)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <h3 className="text-lg font-bold text-slate-900">Confirm Delete</h3>
+                <button
+                  onClick={() => setDeleteTarget(null)}
+                  className="p-2 hover:bg-slate-200 rounded-full text-slate-400 transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-4">
+                <div className="flex items-center gap-3 rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3">
+                  <div className="h-10 w-10 rounded-xl bg-white text-rose-600 flex items-center justify-center border border-rose-100">
+                    <AlertOctagon size={22} />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-slate-900">Delete this {deleteTarget.kind}?</p>
+                    <p className="text-xs text-slate-600">This action cannot be undone.</p>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Name</span>
+                    <span className="text-sm font-bold text-slate-900">{deleteTarget.name}</span>
+                  </div>
+                </div>
+
+                <div className="pt-2 flex gap-3">
+                  <button
+                    onClick={() => setDeleteTarget(null)}
+                    className="flex-1 px-4 py-3 border border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition-all text-xs uppercase"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmDelete}
+                    className="flex-1 px-4 py-3 bg-rose-600 text-white font-bold rounded-xl hover:bg-rose-700 shadow-lg shadow-rose-200 transition-all text-xs uppercase"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
             </motion.div>
           </div>
         )}

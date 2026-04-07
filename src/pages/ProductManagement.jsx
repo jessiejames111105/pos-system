@@ -5,6 +5,7 @@ import {
   Package, 
   Layers, 
   Settings2, 
+  AlertTriangle,
   X,
   Save
 } from 'lucide-react';
@@ -33,13 +34,13 @@ const ProductManagement = () => {
   const [bomLines, setBomLines] = useState([]);
   const [selectedAddonIds, setSelectedAddonIds] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
 
   // Form state for a new product
   const initialProductState = {
     name: '',
     category: '',
     price: '',
-    stock: 0,
     barcode: ''
   };
 
@@ -76,7 +77,6 @@ const ProductManagement = () => {
       name: product.name || '',
       category: product.categoryName || '',
       price: product.price ?? '',
-      stock: product.stock ?? 0,
       barcode: product.barcode ?? ''
     });
     const existingBom = (productIngredients || [])
@@ -99,7 +99,6 @@ const ProductManagement = () => {
       name: productForm.name,
       category_id: categoryId,
       price: Number(productForm.price || 0),
-      stock: Number(productForm.stock || 0),
       barcode: productForm.barcode || null
     };
     if (!payload.name) {
@@ -125,6 +124,16 @@ const ProductManagement = () => {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget?.id) return;
+    if (deleteTarget.kind === 'category') {
+      await deleteCategory(deleteTarget.id);
+    } else if (deleteTarget.kind === 'product') {
+      await deleteProduct(deleteTarget.id);
+    }
+    setDeleteTarget(null);
   };
 
   return (
@@ -183,7 +192,7 @@ const ProductManagement = () => {
                     <Layers size={20} />
                   </div>
                   <button
-                    onClick={() => deleteCategory(cat.id)}
+                    onClick={() => setDeleteTarget({ kind: 'category', id: cat.id, name: cat.name })}
                     className="text-slate-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
                   >
                     <Trash2 size={16} />
@@ -202,7 +211,6 @@ const ProductManagement = () => {
                   <th className="px-6 py-4">Product</th>
                   <th className="px-6 py-4">Category</th>
                   <th className="px-6 py-4">Price</th>
-                  <th className="px-6 py-4">Stock</th>
                   <th className="px-6 py-4 text-right">Actions</th>
                 </tr>
               </thead>
@@ -223,11 +231,6 @@ const ProductManagement = () => {
                     <td className="px-6 py-4">
                       <span className="text-sm font-bold text-slate-900">₱{Number(product.price).toLocaleString()}</span>
                     </td>
-                    <td className="px-6 py-4">
-                      <span className={`text-sm font-bold ${Number(product.stock) <= 0 ? 'text-rose-600' : 'text-slate-900'}`}>
-                        {Number(product.stock).toLocaleString()}
-                      </span>
-                    </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
@@ -237,7 +240,7 @@ const ProductManagement = () => {
                           <Settings2 size={18} />
                         </button>
                         <button
-                          onClick={() => deleteProduct(product.id)}
+                          onClick={() => setDeleteTarget({ kind: 'product', id: product.id, name: product.name })}
                           className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
                         >
                           <Trash2 size={18} />
@@ -314,17 +317,6 @@ const ProductManagement = () => {
                           <option key={cat.id} value={cat.name}>{cat.name}</option>
                         ))}
                       </select>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold text-slate-700">Stock</label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="1"
-                        className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all"
-                        value={productForm.stock}
-                        onChange={(e) => setProductForm({ ...productForm, stock: e.target.value })}
-                      />
                     </div>
                     <div className="space-y-2">
                       <label className="text-sm font-semibold text-slate-700">Barcode (optional)</label>
@@ -483,6 +475,70 @@ const ProductManagement = () => {
                   <Save size={18} />
                   {isSaving ? 'Saving...' : 'Save Product'}
                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {deleteTarget && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setDeleteTarget(null)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <h3 className="text-lg font-bold text-slate-900">Confirm Delete</h3>
+                <button
+                  onClick={() => setDeleteTarget(null)}
+                  className="p-2 hover:bg-slate-200 rounded-full text-slate-400 transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-4">
+                <div className="flex items-center gap-3 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3">
+                  <div className="h-10 w-10 rounded-xl bg-white text-amber-600 flex items-center justify-center border border-amber-100">
+                    <AlertTriangle size={22} />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-slate-900">Delete this {deleteTarget.kind}?</p>
+                    <p className="text-xs text-slate-600">This action cannot be undone.</p>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Name</span>
+                    <span className="text-sm font-bold text-slate-900">{deleteTarget.name}</span>
+                  </div>
+                </div>
+
+                <div className="pt-2 flex gap-3">
+                  <button
+                    onClick={() => setDeleteTarget(null)}
+                    className="flex-1 px-4 py-3 border border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition-all text-xs uppercase"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmDelete}
+                    className="flex-1 px-4 py-3 bg-rose-600 text-white font-bold rounded-xl hover:bg-rose-700 shadow-lg shadow-rose-200 transition-all text-xs uppercase"
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
             </motion.div>
           </div>

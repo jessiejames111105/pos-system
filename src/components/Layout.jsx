@@ -26,12 +26,12 @@ function cn(...inputs) {
 }
 
 const navItems = [
-  { name: 'Dashboard', icon: LayoutDashboard, path: '/', role: 'cashier' },
+  { name: 'Dashboard', icon: LayoutDashboard, path: '/', role: 'admin' },
   { name: 'Take Order', icon: ShoppingCart, path: '/pos', role: 'cashier' },
   { name: 'Transactions', icon: History, path: '/transactions', role: 'cashier' },
   { name: 'Daily Sales', icon: TrendingUp, path: '/sales', role: 'cashier' },
   { name: 'Product Management', icon: Package, path: '/products', role: 'admin' },
-  { name: 'Inventory', icon: Package, path: '/inventory', role: 'cashier' },
+  { name: 'Inventory', icon: Package, path: '/inventory', role: 'admin' },
   { name: 'User Management', icon: Users, path: '/customers', role: 'admin' },
   { name: 'Reports', icon: TrendingUp, path: '/reports', role: 'admin' },
   { name: 'Settings', icon: Settings, path: '/settings', role: 'admin' },
@@ -58,11 +58,11 @@ const Sidebar = () => {
         <div className="flex h-24 items-center justify-center px-8">
           {isSidebarOpen ? (
             <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              POS<span className="text-primary-600">Flex</span>
+              Zwit<span className="text-primary-600">BlakTea</span>
             </h1>
           ) : (
             <div className="mx-auto h-12 w-12 bg-primary-600 text-white rounded-2xl flex items-center justify-center font-bold shadow-lg shadow-primary-200">
-              P
+              Z
             </div>
           )}
         </div>

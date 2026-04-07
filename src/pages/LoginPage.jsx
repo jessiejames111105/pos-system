@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { motion } from 'framer-motion';
-import { Mail, Lock, AlertCircle } from 'lucide-react';
+import { User, Lock, AlertCircle } from 'lucide-react';
 
 const LoginPage = () => {
   const { login } = useApp();
-  const [email, setEmail] = useState('');
+  const [accountId, setAccountId] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -14,7 +14,7 @@ const LoginPage = () => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
-    const result = await login({ email, password });
+    const result = await login({ accountId, password });
     if (!result.success) {
       setError(result.message);
       setIsLoading(false);
@@ -30,10 +30,10 @@ const LoginPage = () => {
       >
         <div className="flex flex-col items-center mb-8">
           <div className="h-16 w-16 bg-primary-600 text-white rounded-[24px] flex items-center justify-center font-bold text-3xl mb-4 shadow-2xl shadow-primary-200">
-            P
+            Z
           </div>
           <h1 className="text-4xl font-bold text-slate-900 tracking-tight">
-            POS<span className="text-primary-600">Flex</span>
+            Zwit<span className="text-primary-600">BlakTea</span>
           </h1>
           <p className="text-slate-400 font-bold uppercase tracking-wide text-xs mt-2">Premium POS Solution</p>
         </div>
@@ -42,15 +42,15 @@ const LoginPage = () => {
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-4">
               <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-1">Email</label>
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-1">Account ID</label>
                 <div className="relative">
-                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+                  <User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
                   <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    type="text"
+                    value={accountId}
+                    onChange={(e) => setAccountId(e.target.value)}
                     className="block w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-slate-900 font-bold placeholder:text-slate-300 focus:outline-none focus:border-primary-500 focus:bg-white transition-all tracking-wide"
-                    placeholder="admin@gmail.com"
+                    placeholder="ADM000001"
                     disabled={isLoading}
                     autoFocus
                     required
@@ -98,19 +98,19 @@ const LoginPage = () => {
           <div className="mt-12 grid grid-cols-2 gap-4">
             <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Admin Demo</p>
-              <p className="text-xs font-bold text-slate-900">admin@gmail.com</p>
+              <p className="text-xs font-bold text-slate-900">ADM000001</p>
               <p className="text-xs text-slate-500">admin123</p>
             </div>
             <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Cashier Demo</p>
-              <p className="text-xs font-bold text-slate-900">cashier@gmail.com</p>
+              <p className="text-xs font-bold text-slate-900">CSH000001</p>
               <p className="text-xs text-slate-500">cashier123</p>
             </div>
           </div>
         </div>
         
         <p className="text-center text-slate-400 text-xs mt-8">
-          &copy; 2026 POSFlex. All rights reserved.
+          &copy; 2026 ZwitBlakTea. All rights reserved.
         </p>
       </motion.div>
     </div>

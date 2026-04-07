@@ -367,7 +367,9 @@ const POSPage = () => {
                     <span className="text-primary-600 font-bold text-sm lg:text-lg">₱{product.basePrice}</span>
                   </div>
                   <h3 className="font-bold text-slate-900 leading-tight mb-1 text-sm lg:text-base line-clamp-2">{product.name}</h3>
-                  <p className="text-[10px] lg:text-xs text-slate-400 font-bold uppercase tracking-wide">{Number(product.stock || 0).toLocaleString()} in stock</p>
+                  <p className="text-[10px] lg:text-xs text-slate-400 font-bold uppercase tracking-wide">
+                    {isAvailable ? 'Available' : 'Unavailable'}
+                  </p>
                   {!isAvailable && (
                     <span className="mt-3 inline-flex w-fit rounded-lg bg-slate-200 px-2 py-1 text-[10px] font-bold uppercase tracking-tight text-slate-600">
                       Not Available

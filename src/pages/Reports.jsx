@@ -70,7 +70,7 @@ const Reports = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `pos-report_${from}_to_${to}.csv`;
+    a.download = `ZwitBlakTea-report_${from}_to_${to}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -183,4 +183,3 @@ const Reports = () => {
 };
 
 export default Reports;
-

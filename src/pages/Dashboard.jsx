@@ -91,10 +91,14 @@ const Dashboard = () => {
             Analytics Overview
           </div>
           <h1 className="text-3xl lg:text-5xl font-bold text-slate-900 tracking-tight">
-            {isAdmin ? 'Branch Performance' : 'My Daily Summary'}
+            {isAdmin ? 'Store Performance' : 'My Daily Summary'}
           </h1>
           <p className="text-slate-500 font-medium mt-2">
-            Real-time sales insights for <span className="text-slate-900 font-bold">Main Branch (Quezon City)</span>
+            {isAdmin ? (
+              <>Real-time insights for your <span className="text-slate-900 font-bold">store</span></>
+            ) : (
+              <>Real-time insights for your <span className="text-slate-900 font-bold">shift</span></>
+            )}
           </p>
         </div>
         
