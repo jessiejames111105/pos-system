@@ -5,6 +5,10 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 export default defineConfig({
+  server: {
+    host: '0.0.0.0', // Bind to all network interfaces, required for Render
+    port: 3000,       // You can change this to 80 or any other open port if needed
+  },
   plugins: [
     tailwindcss(),
     react(),
