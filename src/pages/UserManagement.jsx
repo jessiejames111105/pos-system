@@ -9,13 +9,16 @@ import {
   X, 
   Lock,
   Search,
-  CheckCircle2
+  CheckCircle2,
+  Eye,
+  KeyRound,
+  Loader2
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const UserManagement = () => {
-  const { accounts, createAccount, deleteAccount, user: currentUser, globalSearchTerm, setGlobalSearchTerm } = useApp();
+  const { accounts, createAccount, deleteAccount, updateAccountPassword, verifyCredentials, user: currentUser, globalSearchTerm, setGlobalSearchTerm } = useApp();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSuccessOpen, setIsSuccessOpen] = useState(false);
   const [successUser, setSuccessUser] = useState(null);
@@ -23,6 +26,21 @@ const UserManagement = () => {
   const [pendingCreate, setPendingCreate] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [reauthOpen, setReauthOpen] = useState(false);
+  const [reauthAction, setReauthAction] = useState(null);
+  const [reauthAccountId, setReauthAccountId] = useState('');
+  const [reauthPassword, setReauthPassword] = useState('');
+  const [reauthError, setReauthError] = useState('');
+  const [reauthLockAccountId, setReauthLockAccountId] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [pendingViewPassword, setPendingViewPassword] = useState(null);
+  const [viewPasswordOpen, setViewPasswordOpen] = useState(false);
+  const [viewPasswordValue, setViewPasswordValue] = useState('');
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  const [pendingPasswordChange, setPendingPasswordChange] = useState(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [changePasswordError, setChangePasswordError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('all'); // all | admin | cashier
   const [formData, setFormData] = useState({
@@ -30,6 +48,7 @@ const UserManagement = () => {
     role: 'cashier',
     password: ''
   });
+  const isAdmin = currentUser?.role === 'admin';
 
   useEffect(() => {
     setSearchTerm(globalSearchTerm || '');
@@ -51,24 +70,20 @@ const UserManagement = () => {
     setCreateConfirmOpen(true);
   };
 
+  const requestReauth = (action, opts = {}) => {
+    setReauthAction(action);
+    setReauthAccountId(opts.accountId ?? '');
+    setReauthPassword('');
+    setReauthError('');
+    setReauthLockAccountId(Boolean(opts.lockAccountId));
+    setReauthOpen(true);
+  };
+
   const confirmCreate = async () => {
     if (!pendingCreate) return;
     if (isSubmitting) return;
-    setIsSubmitting(true);
-    try {
-      const result = await createAccount(pendingCreate);
-      if (!result.ok) return;
-      setSuccessUser({
-        name: pendingCreate.name,
-        role: pendingCreate.role,
-        account_id: result.account?.account_id || result.account?.email || null
-      });
-      setCreateConfirmOpen(false);
-      setPendingCreate(null);
-      setIsSuccessOpen(true);
-    } finally {
-      setIsSubmitting(false);
-    }
+    setCreateConfirmOpen(false);
+    requestReauth('create');
   };
 
   const filteredUsers = accounts.filter(u => {
@@ -84,8 +99,106 @@ const UserManagement = () => {
 
   const confirmDelete = async () => {
     if (!deleteTarget?.id) return;
-    await deleteAccount(deleteTarget.id);
+    if (isSubmitting) return;
+    setPendingDelete(deleteTarget);
     setDeleteTarget(null);
+    requestReauth('delete');
+  };
+
+  const requestViewPassword = (acct) => {
+    if (!isAdmin) return;
+    setPendingViewPassword(acct);
+    requestReauth('view_password');
+  };
+
+  const openChangePassword = (acct) => {
+    if (!isAdmin) return;
+    setPendingPasswordChange(acct);
+    setNewPassword('');
+    setConfirmNewPassword('');
+    setChangePasswordError('');
+    const myId = currentUser?.account_id || currentUser?.email || '';
+    requestReauth('change_password', { accountId: myId, lockAccountId: true });
+  };
+
+  const continueChangePassword = (e) => {
+    e.preventDefault();
+    if (isSubmitting) return;
+    if (!pendingPasswordChange) return;
+    const p1 = (newPassword || '').toString();
+    const p2 = (confirmNewPassword || '').toString();
+    if (!p1 || !p2) {
+      setChangePasswordError('Enter the new password.');
+      return;
+    }
+    if (p1 !== p2) {
+      setChangePasswordError('Passwords do not match.');
+      return;
+    }
+    setIsSubmitting(true);
+    setChangePasswordError('');
+    (async () => {
+      try {
+        const result = await updateAccountPassword({ id: pendingPasswordChange.id, password: p1 });
+        if (!result.ok) return;
+        setChangePasswordOpen(false);
+        setPendingPasswordChange(null);
+        setNewPassword('');
+        setConfirmNewPassword('');
+      } finally {
+        setIsSubmitting(false);
+      }
+    })();
+  };
+
+  const submitReauth = async (e) => {
+    e.preventDefault();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    setReauthError('');
+    try {
+      const ok = await verifyCredentials({ accountId: reauthAccountId, password: reauthPassword });
+      if (!ok.ok) {
+        setReauthError('Invalid account ID or password.');
+        return;
+      }
+      if (reauthAction === 'create') {
+        const result = await createAccount(pendingCreate);
+        if (!result.ok) return;
+        setSuccessUser({
+          name: pendingCreate.name,
+          role: pendingCreate.role,
+          account_id: result.account?.account_id || result.account?.email || null
+        });
+        setPendingCreate(null);
+        setIsSuccessOpen(true);
+        setReauthOpen(false);
+        return;
+      }
+      if (reauthAction === 'delete') {
+        if (!pendingDelete?.id) return;
+        await deleteAccount(pendingDelete.id);
+        setPendingDelete(null);
+        setReauthOpen(false);
+        return;
+      }
+      if (reauthAction === 'view_password') {
+        if (!pendingViewPassword) return;
+        setViewPasswordValue(String(pendingViewPassword.password || ''));
+        setViewPasswordOpen(true);
+        setReauthOpen(false);
+        return;
+      }
+      if (reauthAction === 'change_password') {
+        if (!pendingPasswordChange?.id) return;
+        setReauthOpen(false);
+        setReauthLockAccountId(false);
+        setChangePasswordOpen(true);
+        return;
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -120,12 +233,12 @@ const UserManagement = () => {
                 }}
             />
           </div>
-            <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm">
+            <div className="flex items-center gap-2 bg-white p-2 rounded-2xl border border-slate-200 shadow-sm">
               <Filter size={16} className="text-slate-400" />
               <select
                 value={roleFilter}
                 onChange={(e) => setRoleFilter(e.target.value)}
-                className="px-3 py-2 rounded-lg border border-slate-200 bg-white font-bold text-slate-900 text-[10px] uppercase tracking-wide"
+                className="select-system select-filter"
               >
                 <option value="all">All</option>
                 <option value="admin">Admin</option>
@@ -148,6 +261,7 @@ const UserManagement = () => {
                 <th className="px-6 py-4">User</th>
                 <th className="px-6 py-4">Role</th>
                 <th className="px-6 py-4">Account ID</th>
+                <th className="px-6 py-4">Password</th>
                 <th className="px-6 py-4 text-right">Actions</th>
               </tr>
             </thead>
@@ -173,14 +287,40 @@ const UserManagement = () => {
                   <td className="px-6 py-4">
                     <span className="text-sm font-semibold text-slate-700">{u.account_id || u.email || '—'}</span>
                   </td>
+                  <td className="px-6 py-4">
+                    <span className="text-sm font-bold text-slate-300">••••••</span>
+                  </td>
                   <td className="px-6 py-4 text-right">
-                    <button 
-                      onClick={() => setDeleteTarget({ id: u.id, name: u.name, email: u.account_id || u.email || '—', role: u.role })}
-                      disabled={currentUser.id === u.id}
-                      className={`p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all ${currentUser.id === u.id ? 'opacity-0 pointer-events-none' : ''}`}
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    <div className="flex justify-end gap-2">
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => requestViewPassword(u)}
+                          className="p-2 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-all"
+                          title="View password"
+                        >
+                          <Eye size={16} />
+                        </button>
+                      )}
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => openChangePassword(u)}
+                          className="p-2 text-slate-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-all"
+                          title="Change password"
+                        >
+                          <KeyRound size={16} />
+                        </button>
+                      )}
+                      <button 
+                        onClick={() => setDeleteTarget({ id: u.id, name: u.name, email: u.account_id || u.email || '—', role: u.role })}
+                        disabled={currentUser.id === u.id}
+                        className={`p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all ${currentUser.id === u.id ? 'opacity-0 pointer-events-none' : ''}`}
+                        title="Delete"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -345,8 +485,9 @@ const UserManagement = () => {
                   <button
                     disabled={isSubmitting}
                     onClick={confirmCreate}
-                    className="flex-1 px-4 py-3 bg-primary-600 text-white font-bold rounded-xl hover:bg-primary-700 shadow-lg shadow-primary-200 transition-all text-xs uppercase disabled:bg-slate-200 disabled:shadow-none"
+                    className="flex-1 px-4 py-3 bg-primary-600 text-white font-bold rounded-xl hover:bg-primary-700 shadow-lg shadow-primary-200 transition-all text-xs uppercase disabled:bg-slate-200 disabled:shadow-none flex items-center justify-center gap-2"
                   >
+                    {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : null}
                     {isSubmitting ? 'Creating...' : 'Create'}
                   </button>
                 </div>
@@ -417,6 +558,257 @@ const UserManagement = () => {
                   Done
                 </button>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {reauthOpen && (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                if (!isSubmitting) setReauthOpen(false);
+              }}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <h3 className="text-lg font-bold text-slate-900">
+                  {reauthAction === 'change_password' ? 'Confirm Admin Password' : 'Security Check'}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!isSubmitting) setReauthOpen(false);
+                  }}
+                  className="p-2 hover:bg-slate-200 rounded-full text-slate-400 transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <form onSubmit={submitReauth} className="p-6 space-y-4">
+                <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <div className="h-10 w-10 rounded-xl bg-white text-slate-700 flex items-center justify-center border border-slate-200">
+                    <Lock size={20} />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-slate-900">Confirm your account</p>
+                    <p className="text-xs text-slate-600">Enter your Account ID and Password to continue.</p>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700 uppercase">Account ID</label>
+                  <input
+                    required
+                    type="text"
+                    value={reauthAccountId}
+                    onChange={(e) => setReauthAccountId(e.target.value)}
+                    disabled={reauthLockAccountId}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all font-bold uppercase disabled:bg-slate-100 disabled:text-slate-400"
+                    placeholder="ADM000001 / CSH000001"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700 uppercase">Password</label>
+                  <input
+                    required
+                    type="password"
+                    value={reauthPassword}
+                    onChange={(e) => setReauthPassword(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all font-bold"
+                    placeholder="Enter password"
+                  />
+                </div>
+
+                {reauthError ? (
+                  <div className="text-xs font-bold text-rose-600 uppercase tracking-wide">
+                    {reauthError}
+                  </div>
+                ) : null}
+
+                <div className="pt-2 flex gap-3">
+                  <button
+                    type="button"
+                    disabled={isSubmitting}
+                    onClick={() => setReauthOpen(false)}
+                    className="flex-1 px-4 py-3 border border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition-all text-xs uppercase disabled:bg-slate-100 disabled:text-slate-400"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="flex-1 px-4 py-3 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 shadow-lg shadow-slate-200 transition-all text-xs uppercase disabled:bg-slate-200 disabled:shadow-none flex items-center justify-center gap-2"
+                  >
+                    {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : null}
+                    {isSubmitting ? 'Checking...' : 'Confirm'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {viewPasswordOpen && pendingViewPassword && (
+          <div className="fixed inset-0 z-[85] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setViewPasswordOpen(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <h3 className="text-lg font-bold text-slate-900">Account Password</h3>
+                <button
+                  type="button"
+                  onClick={() => setViewPasswordOpen(false)}
+                  className="p-2 hover:bg-slate-200 rounded-full text-slate-400 transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="p-6 space-y-4">
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">User</span>
+                    <span className="text-sm font-bold text-slate-900">{pendingViewPassword.name}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Account ID</span>
+                    <span className="text-sm font-bold text-slate-900">{pendingViewPassword.account_id || pendingViewPassword.email || '—'}</span>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-2">Password</div>
+                  <div className="text-lg font-bold text-slate-900 break-all">{viewPasswordValue || '—'}</div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setViewPasswordOpen(false);
+                    setPendingViewPassword(null);
+                    setViewPasswordValue('');
+                  }}
+                  className="w-full px-4 py-3 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition-all text-xs uppercase"
+                >
+                  Done
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {changePasswordOpen && pendingPasswordChange && (
+          <div className="fixed inset-0 z-[75] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                if (!isSubmitting) setChangePasswordOpen(false);
+              }}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <h3 className="text-lg font-bold text-slate-900">Change Password</h3>
+                <button
+                  type="button"
+                  onClick={() => setChangePasswordOpen(false)}
+                  className="p-2 hover:bg-slate-200 rounded-full text-slate-400 transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <form onSubmit={continueChangePassword} className="p-6 space-y-4">
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">User</span>
+                    <span className="text-sm font-bold text-slate-900">{pendingPasswordChange.name}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Account ID</span>
+                    <span className="text-sm font-bold text-slate-900">{pendingPasswordChange.account_id || pendingPasswordChange.email || '—'}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700 uppercase">New Password</label>
+                  <input
+                    required
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all font-bold"
+                    placeholder="Enter new password"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700 uppercase">Confirm Password</label>
+                  <input
+                    required
+                    type="password"
+                    value={confirmNewPassword}
+                    onChange={(e) => setConfirmNewPassword(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all font-bold"
+                    placeholder="Re-enter new password"
+                  />
+                </div>
+
+                {changePasswordError ? (
+                  <div className="text-xs font-bold text-rose-600 uppercase tracking-wide">
+                    {changePasswordError}
+                  </div>
+                ) : null}
+
+                <div className="pt-2 flex gap-3">
+                  <button
+                    type="button"
+                    disabled={isSubmitting}
+                    onClick={() => setChangePasswordOpen(false)}
+                    className="flex-1 px-4 py-3 border border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition-all text-xs uppercase disabled:bg-slate-100 disabled:text-slate-400"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="flex-1 px-4 py-3 bg-primary-600 text-white font-bold rounded-xl hover:bg-primary-700 shadow-lg shadow-primary-200 transition-all text-xs uppercase disabled:bg-slate-200 disabled:shadow-none"
+                  >
+                    Continue
+                  </button>
+                </div>
+              </form>
             </motion.div>
           </div>
         )}

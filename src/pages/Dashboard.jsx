@@ -58,11 +58,63 @@ const StatCard = ({ title, value, change, icon: Icon, trend, subtitle, onClick }
 );
 
 const Dashboard = () => {
-  const { user, dailySales, salesReport, sales, ingredients, categories, products } = useApp();
-  const [reportType, setReportType] = useState('Weekly'); // Daily, Weekly, Monthly
+  const { user, dailySales, salesReport, sales, ingredients, categories, products, activityLogs, getBusinessDayStart } = useApp();
+  const [reportType, setReportType] = useState('Daily'); // Daily, Weekly, Monthly
   const [topCategoryFilter, setTopCategoryFilter] = useState('all');
-  const [isLowStockOpen, setIsLowStockOpen] = useState(false);
   const isAdmin = user?.role === 'admin';
+
+  const revenueTimeline = useMemo(() => {
+    if (!isAdmin) return [];
+    const days = reportType === 'Monthly' ? 90 : reportType === 'Weekly' ? 42 : 14;
+    const end = new Date();
+    end.setHours(0, 0, 0, 0);
+    const start = new Date(end);
+    start.setDate(start.getDate() - (days - 1));
+    const fmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: '2-digit' });
+    const points = [];
+    if (topCategoryFilter === 'all') {
+      const byDate = new Map((salesReport || []).map(r => [String(r.sale_date), Number(r.total_revenue || 0)]));
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        const key = d.toISOString().slice(0, 10);
+        points.push({ date: key, label: fmt.format(d), value: Number(byDate.get(key) || 0) });
+      }
+      return points;
+    }
+
+    const wantedCategoryId = Number(topCategoryFilter);
+    const byDate = new Map();
+    for (const s of sales || []) {
+      const dt = s.created_at ? new Date(s.created_at) : null;
+      if (!dt || Number.isNaN(dt.getTime())) continue;
+      dt.setHours(0, 0, 0, 0);
+      if (dt < start || dt > end) continue;
+      const key = dt.toISOString().slice(0, 10);
+      for (const item of s.items || []) {
+        if (Number(item.category_id || 0) !== wantedCategoryId) continue;
+        byDate.set(key, Number(byDate.get(key) || 0) + Number(item.subtotal || 0));
+      }
+    }
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const key = d.toISOString().slice(0, 10);
+      points.push({ date: key, label: fmt.format(d), value: Number(byDate.get(key) || 0) });
+    }
+    return points;
+  }, [isAdmin, reportType, salesReport, sales, topCategoryFilter]);
+
+  const revenueChart = useMemo(() => {
+    const series = revenueTimeline || [];
+    if (series.length === 0) return null;
+    const w = 720;
+    const h = 240;
+    const padX = 18;
+    const padY = 18;
+    const max = Math.max(1, ...series.map(p => Number(p.value || 0)));
+    const xFor = (i) => padX + (series.length === 1 ? 0 : (i * (w - padX * 2)) / (series.length - 1));
+    const yFor = (v) => padY + (h - padY * 2) * (1 - Math.min(1, Math.max(0, Number(v || 0) / max)));
+    const poly = series.map((p, i) => `${xFor(i)},${yFor(p.value)}`).join(' ');
+    const ticks = [0.25, 0.5, 0.75, 1].map(r => ({ y: yFor(max * r), value: max * r }));
+    return { w, h, poly, xFor, yFor, max, ticks };
+  }, [revenueTimeline]);
 
   const rangeDays = reportType === 'Monthly' ? 30 : reportType === 'Daily' ? 1 : 7;
   const reportRows = (salesReport || []).slice(0, rangeDays);
@@ -81,14 +133,29 @@ const Dashboard = () => {
     const sign = pct > 0 ? '+' : '';
     return `${sign}${pct.toFixed(1)}%`;
   };
-  const revenueChange = pctChange(periodRevenue, prevRevenue);
-  const ordersChange = pctChange(periodOrders, prevOrders);
 
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const todayOrders = (sales || []).filter(s => String(s.created_at || '').slice(0, 10) === todayStr).length;
+  const businessDayStart = useMemo(() => {
+    if (getBusinessDayStart) return getBusinessDayStart();
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, [getBusinessDayStart]);
+
+  const todayOrders = (sales || []).filter(s => new Date(s.created_at || 0) >= businessDayStart).length;
   const avgTransaction = todayOrders > 0 ? Number(dailySales || 0) / todayOrders : 0;
   const lowStockIngredients = (ingredients || []).filter(i => Number(i.min_stock || 0) > 0 && Number(i.quantity || 0) <= Number(i.min_stock || 0));
-  const periodAvgTransaction = periodOrders > 0 ? periodRevenue / periodOrders : 0;
+  const lowStockRows = useMemo(() => {
+    return (ingredients || [])
+      .filter(i => Number(i.quantity || 0) <= 0 || (Number(i.min_stock || 0) > 0 && Number(i.quantity || 0) <= Number(i.min_stock || 0)))
+      .slice()
+      .sort((a, b) => {
+        const aMin = Number(a.min_stock || 0);
+        const bMin = Number(b.min_stock || 0);
+        const aPct = aMin > 0 ? Number(a.quantity || 0) / aMin : -1;
+        const bPct = bMin > 0 ? Number(b.quantity || 0) / bMin : -1;
+        return aPct - bPct;
+      });
+  }, [ingredients]);
   const lowStockSubtitle = useMemo(() => {
     if (lowStockIngredients.length === 0) return 'None';
     const names = lowStockIngredients.map(i => i.name).filter(Boolean);
@@ -103,6 +170,54 @@ const Dashboard = () => {
     d.setHours(0, 0, 0, 0);
     return d;
   }, [rangeDays]);
+
+  const categoryStats = useMemo(() => {
+    if (!isAdmin) return null;
+    if (topCategoryFilter === 'all') return null;
+    const wantedCategoryId = Number(topCategoryFilter);
+    if (!Number.isFinite(wantedCategoryId)) return null;
+
+    const currentStart = new Date(startDate);
+    const currentEnd = new Date();
+    currentEnd.setHours(23, 59, 59, 999);
+
+    const prevEnd = new Date(currentStart);
+    prevEnd.setMilliseconds(-1);
+    const prevStart = new Date(currentStart);
+    prevStart.setDate(prevStart.getDate() - rangeDays);
+
+    const sumRange = (from, to) => {
+      let revenue = 0;
+      let orders = 0;
+      for (const s of sales || []) {
+        const dt = s.created_at ? new Date(s.created_at) : null;
+        if (!dt || Number.isNaN(dt.getTime())) continue;
+        if (dt < from || dt > to) continue;
+        let saleSubtotal = 0;
+        for (const item of s.items || []) {
+          if (Number(item.category_id || 0) !== wantedCategoryId) continue;
+          saleSubtotal += Number(item.subtotal || 0);
+        }
+        if (saleSubtotal > 0) {
+          revenue += saleSubtotal;
+          orders += 1;
+        }
+      }
+      return { revenue, orders };
+    };
+
+    const cur = sumRange(currentStart, currentEnd);
+    const prev = sumRange(prevStart, prevEnd);
+    return { ...cur, prevRevenue: prev.revenue, prevOrders: prev.orders };
+  }, [isAdmin, topCategoryFilter, sales, startDate, rangeDays]);
+
+  const displayedRevenue = categoryStats ? categoryStats.revenue : periodRevenue;
+  const displayedPrevRevenue = categoryStats ? categoryStats.prevRevenue : prevRevenue;
+  const displayedOrders = categoryStats ? categoryStats.orders : periodOrders;
+  const displayedPrevOrders = categoryStats ? categoryStats.prevOrders : prevOrders;
+  const revenueChange = pctChange(displayedRevenue, displayedPrevRevenue);
+  const ordersChange = pctChange(displayedOrders, displayedPrevOrders);
+  const periodAvgTransaction = displayedOrders > 0 ? displayedRevenue / displayedOrders : 0;
 
   const productMetaByName = useMemo(() => {
     const map = new Map();
@@ -144,8 +259,11 @@ const Dashboard = () => {
     const title = 'Dashboard Report';
     const periodLabel = isAdmin ? reportType : 'Daily';
 
-    const revenue = isAdmin ? periodRevenue : Number(dailySales || 0);
-    const orders = isAdmin ? periodOrders : todayOrders;
+    const selectedCategoryName =
+      topCategoryFilter === 'all' ? 'All Categories' : (categories || []).find(c => String(c.id) === String(topCategoryFilter))?.name || 'Category';
+
+    const revenue = isAdmin ? displayedRevenue : Number(dailySales || 0);
+    const orders = isAdmin ? displayedOrders : todayOrders;
     const avg = orders > 0 ? revenue / orders : 0;
     downloadStructuredPdf({
       filename: `ZwitBlakTea-dashboard_${periodLabel.toLowerCase()}_${new Date().toISOString().slice(0, 10)}`,
@@ -153,6 +271,7 @@ const Dashboard = () => {
       subtitle: 'ZwitBlakTea',
       meta: [
         `Period: ${periodLabel}`,
+        ...(isAdmin ? [`Category: ${selectedCategoryName}`] : []),
         `Period Start: ${startDate.toISOString().slice(0, 10)}`,
         `Period End: ${new Date().toISOString().slice(0, 10)}`,
         `Generated: ${new Date().toLocaleString()}`
@@ -171,11 +290,17 @@ const Dashboard = () => {
           title: 'Sales Report (by day)',
           columns: ['Date', 'Transactions', 'Revenue'],
           columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
-          rows: (reportRows || []).map(r => ([
-            String(r.sale_date),
-            Number(r.total_transactions || 0).toLocaleString(),
-            pdfFormats.formatPeso(r.total_revenue || 0)
-          ]))
+          rows: (topCategoryFilter === 'all'
+            ? (reportRows || []).map(r => ([
+              String(r.sale_date),
+              Number(r.total_transactions || 0).toLocaleString(),
+              pdfFormats.formatPeso(r.total_revenue || 0)
+            ]))
+            : (revenueTimeline || []).slice(-(rangeDays)).map(p => ([
+              String(p.date),
+              '—',
+              pdfFormats.formatPeso(p.value || 0)
+            ])))
         }] : []),
         {
           title: 'Top Sellers',
@@ -215,9 +340,9 @@ const Dashboard = () => {
           </h1>
           <p className="text-slate-500 font-medium mt-2">
             {isAdmin ? (
-              <>Real-time insights for your <span className="text-slate-900 font-bold">store</span></>
+              <>Real-time insights for  <span className="text-slate-900 font-bold">ZwitBlakTea</span></>
             ) : (
-              <>Real-time insights for your <span className="text-slate-900 font-bold">shift</span></>
+              <>Real-time insights for  <span className="text-slate-900 font-bold">shift</span></>
             )}
           </p>
         </div>
@@ -229,7 +354,7 @@ const Dashboard = () => {
               <select
                 value={reportType}
                 onChange={(e) => setReportType(e.target.value)}
-                className="px-4 py-2 rounded-xl border border-slate-200 bg-white font-bold text-slate-900 text-xs uppercase tracking-wide"
+                className="select-system select-filter"
               >
                 <option value="Daily">Daily</option>
                 <option value="Weekly">Weekly</option>
@@ -248,14 +373,14 @@ const Dashboard = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard 
           title={isAdmin ? `Total Sales (${reportType})` : "Total Sales Today"}
-          value={`₱${Number(isAdmin ? periodRevenue : dailySales || 0).toLocaleString()}`} 
+          value={`₱${Number(isAdmin ? displayedRevenue : dailySales || 0).toLocaleString()}`} 
           change={isAdmin && revenueChange !== null ? formatPct(revenueChange) : null}
           trend={revenueChange !== null && revenueChange >= 0 ? 'up' : 'down'}
           icon={DollarSign} 
         />
         <StatCard
           title={isAdmin ? `Total Transactions (${reportType})` : "Total Transactions"}
-          value={Number(isAdmin ? periodOrders : todayOrders).toLocaleString()}
+          value={Number(isAdmin ? displayedOrders : todayOrders).toLocaleString()}
           change={isAdmin && ordersChange !== null ? formatPct(ordersChange) : null}
           trend={ordersChange !== null && ordersChange >= 0 ? 'up' : 'down'}
           icon={ShoppingBag}
@@ -267,7 +392,6 @@ const Dashboard = () => {
           change={null}
           trend="down"
           icon={AlertTriangle}
-          onClick={isAdmin ? () => setIsLowStockOpen(true) : undefined}
         />
         <StatCard title="Avg Transaction" value={`₱${Number(isAdmin ? periodAvgTransaction : avgTransaction).toFixed(2)}`} change={null} trend="up" icon={Clock} />
       </div>
@@ -285,40 +409,68 @@ const Dashboard = () => {
               </p>
             </div>
             {isAdmin && (
-              <div className="flex gap-4">
+              <div className="flex items-center gap-3">
                 <div className="flex items-center gap-2">
-                  <div className="h-3 w-3 rounded-full bg-primary-600"></div>
-                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Current</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="h-3 w-3 rounded-full bg-slate-200"></div>
-                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Previous</span>
+                  <Filter size={18} className="text-slate-400" />
+                  <select
+                    value={topCategoryFilter}
+                    onChange={(e) => setTopCategoryFilter(e.target.value)}
+                    className="select-system select-filter"
+                  >
+                    <option value="all">All Categories</option>
+                    {(categories || []).map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
             )}
           </div>
           
-          <div className="flex-1 flex items-end gap-4 min-h-[300px]">
-            {(isAdmin ? [65, 45, 75, 55, 90, 70, 85] : [30, 45, 60, 50, 40, 55, 45]).map((h, i) => (
-              <div key={i} className="flex-1 flex flex-col items-center gap-4 group">
-                <div className="w-full relative flex items-end justify-center">
-                  <motion.div 
-                    initial={{ height: 0 }}
-                    animate={{ height: `${h}%` }}
-                    className={`w-full max-w-[40px] ${isAdmin ? 'bg-primary-600/10' : 'bg-emerald-600/10'} rounded-t-2xl group-hover:${isAdmin ? 'bg-primary-600' : 'bg-emerald-600'} transition-all duration-500 relative`}
-                  >
-                    <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[10px] font-bold px-2 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
-                      ₱{h}K
-                    </div>
-                  </motion.div>
+          <div className="flex-1 min-h-[300px]">
+            {isAdmin && revenueChart ? (
+              <div className="w-full">
+                <div className="relative w-full">
+                  <svg viewBox={`0 0 ${revenueChart.w} ${revenueChart.h}`} className="w-full h-[260px]">
+                    {revenueChart.ticks.map((t) => (
+                      <g key={t.y}>
+                        <line x1="0" y1={t.y} x2={revenueChart.w} y2={t.y} stroke="#e2e8f0" strokeWidth="1" />
+                      </g>
+                    ))}
+                    <polyline
+                      fill="none"
+                      stroke="#4f46e5"
+                      strokeWidth="3"
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                      points={revenueChart.poly}
+                    />
+                    {(revenueTimeline || []).map((p, i) => (
+                      <g key={p.date}>
+                        <circle cx={revenueChart.xFor(i)} cy={revenueChart.yFor(p.value)} r="5" fill="#4f46e5" />
+                        <circle cx={revenueChart.xFor(i)} cy={revenueChart.yFor(p.value)} r="9" fill="#4f46e5" opacity="0.12" />
+                        <title>{`${p.date} • ₱${Number(p.value || 0).toLocaleString()}`}</title>
+                      </g>
+                    ))}
+                  </svg>
                 </div>
-                <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
-                  {isAdmin 
-                    ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][i]
-                    : ['9AM', '11AM', '1PM', '3PM', '5PM', '7PM', '9PM'][i]}
-                </span>
+                <div className="flex justify-between gap-2 px-1">
+                  {(revenueTimeline || []).map((p, i) => {
+                    const step = revenueTimeline.length > 14 ? 7 : 2;
+                    if (i % step !== 0 && i !== revenueTimeline.length - 1) return null;
+                    return (
+                      <span key={p.date} className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                        {p.label}
+                      </span>
+                    );
+                  })}
+                </div>
               </div>
-            ))}
+            ) : (
+              <div className="h-[260px] flex items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-500">
+                No sales data yet.
+              </div>
+            )}
           </div>
         </div>
 
@@ -333,7 +485,7 @@ const Dashboard = () => {
               <select
                 value={topCategoryFilter}
                 onChange={(e) => setTopCategoryFilter(e.target.value)}
-                className="px-4 py-2 rounded-xl border border-slate-200 bg-white font-bold text-slate-900 text-xs uppercase tracking-wide"
+                className="select-system select-filter"
               >
                 <option value="all">All</option>
                 {(categories || []).map(c => (
@@ -367,74 +519,112 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {isAdmin && isLowStockOpen && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
-            onClick={() => setIsLowStockOpen(false)}
-          />
-          <div className="relative w-full max-w-lg bg-white rounded-[32px] shadow-2xl overflow-hidden border border-slate-200">
-            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-              <div>
-                <h3 className="text-lg font-bold text-slate-900">Low-stock Ingredients</h3>
-                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mt-1">
-                  Ingredients at or below minimum stock
-                </p>
-              </div>
-              <button
-                onClick={() => setIsLowStockOpen(false)}
-                className="p-2 hover:bg-slate-200 rounded-full text-slate-400 transition-colors"
-              >
-                <span className="text-xl leading-none">×</span>
-              </button>
+      {isAdmin && (
+        <div className="space-y-8">
+          <div className="bg-white rounded-[40px] border border-slate-100 shadow-sm p-10">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-slate-900 tracking-tight uppercase">Low-stock Alerts</h2>
+              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                {(lowStockRows || []).length.toLocaleString()} items
+              </span>
             </div>
 
-            <div className="max-h-[70vh] overflow-y-auto">
-              {lowStockIngredients.length === 0 ? (
-                <div className="p-8 text-center text-slate-500 font-bold">No low-stock ingredients.</div>
+            <div className="max-h-[420px] overflow-y-auto">
+              {(lowStockRows || []).length === 0 ? (
+                <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-8 text-sm text-slate-500">
+                  No low-stock items.
+                </div>
               ) : (
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-white text-slate-500 text-[10px] font-bold uppercase tracking-wider border-b border-slate-100">
-                      <th className="px-6 py-4">Ingredient</th>
-                      <th className="px-6 py-4">Remaining</th>
-                      <th className="px-6 py-4">Min</th>
+                      <th className="px-4 py-3">Ingredient</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3 text-right">Remaining</th>
+                      <th className="px-4 py-3 text-right">Min</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {lowStockIngredients
-                      .slice()
-                      .sort((a, b) => {
-                        const aPct = Number(a.min_stock || 0) > 0 ? Number(a.quantity || 0) / Number(a.min_stock || 1) : 0;
-                        const bPct = Number(b.min_stock || 0) > 0 ? Number(b.quantity || 0) / Number(b.min_stock || 1) : 0;
-                        return aPct - bPct;
-                      })
-                      .map(ing => (
+                    {(lowStockRows || []).slice(0, 80).map((ing) => {
+                      const qty = Number(ing.quantity || 0);
+                      const min = Number(ing.min_stock || 0);
+                      const isOut = qty <= 0;
+                      return (
                         <tr key={ing.id} className="hover:bg-slate-50/50">
-                          <td className="px-6 py-4">
-                            <div className="font-bold text-slate-900">{ing.name}</div>
+                          <td className="px-4 py-3">
+                            <div className="text-sm font-bold text-slate-900">{ing.name}</div>
                             <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mt-1">{ing.unit}</div>
                           </td>
-                          <td className="px-6 py-4 font-bold text-rose-600">
-                            {Number(ing.quantity || 0).toLocaleString()}
+                          <td className="px-4 py-3">
+                            {isOut ? (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide bg-rose-50 text-rose-700 border border-rose-100">
+                                No Stock
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide bg-amber-50 text-amber-700 border border-amber-100">
+                                Low Stock
+                              </span>
+                            )}
                           </td>
-                          <td className="px-6 py-4 font-bold text-slate-700">
-                            {Number(ing.min_stock || 0).toLocaleString()}
+                          <td className="px-4 py-3 text-right font-bold text-slate-700">
+                            {qty.toLocaleString()}
+                          </td>
+                          <td className="px-4 py-3 text-right font-bold text-slate-700">
+                            {min.toLocaleString()}
                           </td>
                         </tr>
-                      ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
             </div>
+          </div>
 
-            <div className="p-6 border-t border-slate-100 bg-white flex justify-end">
-              <button
-                onClick={() => setIsLowStockOpen(false)}
-                className="px-5 py-3 rounded-xl bg-slate-900 text-white font-bold text-xs uppercase tracking-wide hover:bg-slate-800 transition-all"
-              >
-                Close
-              </button>
+          <div className="bg-white rounded-[40px] border border-slate-100 shadow-sm p-10">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-slate-900 tracking-tight uppercase">Activity Logs</h2>
+              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                {(activityLogs || []).length.toLocaleString()} logs
+              </span>
+            </div>
+
+            <div className="max-h-[420px] overflow-y-auto">
+              {(activityLogs || []).length === 0 ? (
+                <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-8 text-sm text-slate-500">
+                  No activity logs yet.
+                </div>
+              ) : (
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-white text-slate-500 text-[10px] font-bold uppercase tracking-wider border-b border-slate-100">
+                      <th className="px-4 py-3">Date / Time</th>
+                      <th className="px-4 py-3">Account</th>
+                      <th className="px-4 py-3">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {(activityLogs || []).slice(0, 80).map((l) => {
+                      const dt = l.created_at ? new Date(l.created_at) : null;
+                      const dateText = dt && !Number.isNaN(dt.getTime()) ? dt.toLocaleString() : String(l.created_at || '—');
+                      const who = l.actor_name || l.actor_account_id || '—';
+                      const acctId = l.actor_account_id && l.actor_name ? String(l.actor_account_id) : null;
+                      return (
+                        <tr key={l.id} className="hover:bg-slate-50/50">
+                          <td className="px-4 py-3 text-sm font-bold text-slate-700">{dateText}</td>
+                          <td className="px-4 py-3">
+                            <div className="text-sm font-bold text-slate-900">{who}</div>
+                            {acctId ? (
+                              <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mt-1">{acctId}</div>
+                            ) : null}
+                          </td>
+                          <td className="px-4 py-3 text-sm font-semibold text-slate-800">{String(l.action || '')}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         </div>

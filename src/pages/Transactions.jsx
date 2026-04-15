@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { 
   Search, 
   Download, 
@@ -24,6 +24,8 @@ const Transactions = () => {
   const [toDate, setToDate] = useState('');
   const [paymentFilter, setPaymentFilter] = useState('all'); // all | Cash | GCash
   const [cashierFilter, setCashierFilter] = useState('all');
+  const fromDateRef = useRef(null);
+  const toDateRef = useRef(null);
 
   const isAdmin = user?.role === 'admin';
 
@@ -35,18 +37,25 @@ const Transactions = () => {
     return (sales || []).map(s => ({
       id: s.id,
       cashier: s.cashier,
+      cashierAccountId: s.cashier_account_id ?? null,
       date: s.created_at,
       total: Number(s.total_amount || 0),
       paymentMethod:
         String(s.payment_method || '').toLowerCase().includes('cash') || s.cash_received != null || s.change_amount != null
           ? 'Cash'
           : 'GCash',
+      referenceNumber: s.reference_number ?? null,
       cashReceived: s.cash_received == null ? null : Number(s.cash_received),
       changeAmount: s.change_amount == null ? null : Number(s.change_amount),
       items: (s.items || []).map(i => ({
         name: i.name,
         quantity: i.quantity,
-        price: Number(i.price || 0),
+        price: (() => {
+          const q = Number(i.quantity || 0);
+          const raw = q > 0 ? Number(i.subtotal || 0) / q : Number(i.price || 0);
+          const rounded = Math.round((Number(raw) || 0) * 100) / 100;
+          return Number.isFinite(rounded) ? rounded : 0;
+        })(),
         details: i.size_name ? String(i.size_name).toUpperCase() : '',
         addons: (i.addons || []).map(a => ({
           name: a.name,
@@ -74,7 +83,9 @@ const Transactions = () => {
       if (!q) return true;
       if (String(trx.id || '').toLowerCase().includes(q)) return true;
       if (String(trx.cashier || '').toLowerCase().includes(q)) return true;
+      if (String(trx.cashierAccountId || '').toLowerCase().includes(q)) return true;
       if (String(trx.paymentMethod || '').toLowerCase().includes(q)) return true;
+      if (String(trx.referenceNumber || '').toLowerCase().includes(q)) return true;
       return (trx.items || []).some(i => String(i.name || '').toLowerCase().includes(q));
     });
   }, [transactions, searchTerm, fromDate, toDate, paymentFilter, cashierFilter, isAdmin]);
@@ -163,7 +174,7 @@ const Transactions = () => {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
           <input
             type="text"
-            placeholder="Search by Order ID or Cashier..."
+            placeholder="Search by Transaction ID, Cashier, Account ID, Reference, or Item..."
             className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all"
             value={searchTerm}
             onChange={(e) => {
@@ -174,12 +185,19 @@ const Transactions = () => {
         </div>
         <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
           <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
-            <Calendar size={18} className="text-slate-400" />
+            <button
+              type="button"
+              onClick={() => fromDateRef.current?.showPicker ? fromDateRef.current.showPicker() : fromDateRef.current?.focus()}
+              className="text-slate-400"
+            >
+              <Calendar size={18} />
+            </button>
             <input
               type="date"
               value={fromDate}
               onChange={(e) => setFromDate(e.target.value)}
               className="bg-transparent font-bold text-slate-700 text-xs outline-none"
+              ref={fromDateRef}
             />
             <span className="text-slate-300 font-bold">—</span>
             <input
@@ -187,15 +205,23 @@ const Transactions = () => {
               value={toDate}
               onChange={(e) => setToDate(e.target.value)}
               className="bg-transparent font-bold text-slate-700 text-xs outline-none"
+              ref={toDateRef}
             />
+            <button
+              type="button"
+              onClick={() => toDateRef.current?.showPicker ? toDateRef.current.showPicker() : toDateRef.current?.focus()}
+              className="text-slate-400"
+            >
+              <Calendar size={18} />
+            </button>
           </div>
 
-          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2">
+          <div className="flex items-center gap-2 bg-white p-2 rounded-2xl border border-slate-200 shadow-sm">
             <Filter size={18} className="text-slate-400" />
             <select
               value={paymentFilter}
               onChange={(e) => setPaymentFilter(e.target.value)}
-              className="bg-white font-bold text-slate-900 text-xs uppercase tracking-wide outline-none"
+              className="select-system select-filter"
             >
               <option value="all">All Payments</option>
               <option value="Cash">Cash</option>
@@ -204,12 +230,12 @@ const Transactions = () => {
           </div>
 
           {isAdmin && (
-            <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2">
+            <div className="flex items-center gap-2 bg-white p-2 rounded-2xl border border-slate-200 shadow-sm">
               <User size={18} className="text-slate-400" />
               <select
                 value={cashierFilter}
                 onChange={(e) => setCashierFilter(e.target.value)}
-                className="bg-white font-bold text-slate-900 text-xs uppercase tracking-wide outline-none"
+                className="select-system select-filter"
               >
                 <option value="all">All Cashiers</option>
                 {cashierOptions.map(c => (

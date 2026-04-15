@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Calendar, Download, TrendingUp, AlertTriangle } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { downloadStructuredPdf, pdfFormats } from '../lib/exportPdf';
@@ -13,6 +13,8 @@ const Reports = () => {
   const today = new Date();
   const [from, setFrom] = useState(toDateInputValue(today));
   const [to, setTo] = useState(toDateInputValue(today));
+  const fromRef = useRef(null);
+  const toRef = useRef(null);
 
   const range = useMemo(() => {
     const fromDate = new Date(`${from}T00:00:00`);
@@ -122,7 +124,13 @@ const Reports = () => {
 
       <div className="bg-white rounded-[32px] border border-slate-100 shadow-sm p-6 flex flex-col md:flex-row gap-4 items-start md:items-end">
         <div className="flex items-center gap-2 text-slate-500 font-bold uppercase tracking-wide text-[10px]">
-          <Calendar size={14} />
+          <button
+            type="button"
+            onClick={() => fromRef.current?.showPicker ? fromRef.current.showPicker() : fromRef.current?.focus()}
+            className="text-slate-500"
+          >
+            <Calendar size={14} />
+          </button>
           Date Range
         </div>
         <div className="flex gap-3 flex-wrap">
@@ -133,16 +141,27 @@ const Reports = () => {
               value={from}
               onChange={(e) => setFrom(e.target.value)}
               className="px-4 py-2 rounded-xl border border-slate-200 bg-white font-bold text-slate-900"
+              ref={fromRef}
             />
           </div>
           <div className="space-y-1">
             <label className="text-[10px] font-bold uppercase tracking-wide text-slate-400">To</label>
-            <input
-              type="date"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-              className="px-4 py-2 rounded-xl border border-slate-200 bg-white font-bold text-slate-900"
-            />
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                className="px-4 py-2 rounded-xl border border-slate-200 bg-white font-bold text-slate-900"
+                ref={toRef}
+              />
+              <button
+                type="button"
+                onClick={() => toRef.current?.showPicker ? toRef.current.showPicker() : toRef.current?.focus()}
+                className="p-2 rounded-xl border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+              >
+                <Calendar size={14} />
+              </button>
+            </div>
           </div>
         </div>
       </div>

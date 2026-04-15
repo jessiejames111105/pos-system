@@ -10,6 +10,7 @@ import Transactions from './pages/Transactions';
 import UserManagement from './pages/UserManagement';
 import Reports from './pages/Reports';
 import LoginPage from './pages/LoginPage';
+import Settings from './pages/Settings';
 
 const ProtectedRoute = ({ children, roleRequired }) => {
   const { user } = useApp();
@@ -68,7 +69,7 @@ function AppRoutes() {
       } />
       <Route path="/settings" element={
         <ProtectedRoute roleRequired="admin">
-          <div className="p-8 text-center bg-white rounded-2xl border border-slate-200">Settings Page (Admin Only)</div>
+          <Settings />
         </ProtectedRoute>
       } />
       <Route path="*" element={<Navigate to="/" replace />} />

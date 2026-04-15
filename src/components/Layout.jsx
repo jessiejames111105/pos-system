@@ -15,6 +15,9 @@ import {
   User,
   History,
   TrendingUp,
+  Check,
+  CheckCheck,
+  Trash2,
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { clsx } from 'clsx';
@@ -31,30 +34,37 @@ const navItems = [
   { name: 'Product Management', icon: Package, path: '/products', role: 'admin' },
   { name: 'Inventory', icon: Package, path: '/inventory', role: 'admin' },
   { name: 'User Management', icon: Users, path: '/customers', role: 'admin' },
-  { name: 'Reports', icon: TrendingUp, path: '/reports', role: 'admin' },
   { name: 'Settings', icon: Settings, path: '/settings', role: 'admin' },
 ];
 
 const Sidebar = () => {
-  const { isSidebarOpen, user, logout } = useApp();
+  const { isSidebarOpen, isSidebarHidden, user, logout } = useApp();
   const location = useLocation();
+  const [hoverOpen, setHoverOpen] = useState(false);
 
   const filteredNavItems = navItems.filter(item => 
     user?.role === 'admin' || item.role === 'cashier'
   );
 
+  if (isSidebarHidden) return null;
+  const effectiveOpen = isSidebarOpen || hoverOpen;
+
   return (
     <aside
+      onMouseEnter={() => {
+        if (!isSidebarOpen) setHoverOpen(true);
+      }}
+      onMouseLeave={() => setHoverOpen(false)}
       className={cn(
         "fixed left-0 top-0 z-40 h-screen transition-all duration-300 ease-in-out border-r border-slate-200 bg-white shadow-2xl shadow-slate-200/50",
-        isSidebarOpen ? "w-72" : "w-24",
+        effectiveOpen ? "w-72" : "w-24",
         "hidden lg:block"
       )}
     >
       <div className="flex h-full flex-col">
         {/* Logo Section */}
         <div className="flex h-24 items-center justify-center px-8">
-          {isSidebarOpen ? (
+          {effectiveOpen ? (
             <h1 className="text-xl font-bold text-slate-900 tracking-tight">
               Zwit<span className="text-primary-600">BlakTea</span>
             </h1>
@@ -83,12 +93,12 @@ const Sidebar = () => {
                 <item.icon
                   className={cn(
                     "shrink-0 transition-colors",
-                    isSidebarOpen ? "mr-3" : "mx-auto",
+                    effectiveOpen ? "mr-3" : "mx-auto",
                     isActive ? "text-primary-600" : "text-slate-400 group-hover:text-slate-600"
                   )}
                   size={20}
                 />
-                {isSidebarOpen && <span>{item.name}</span>}
+                {effectiveOpen && <span>{item.name}</span>}
               </NavLink>
             );
           })}
@@ -100,14 +110,14 @@ const Sidebar = () => {
             onClick={logout}
             className={cn(
               "flex w-full items-center rounded-xl px-3 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 transition-all",
-              !isSidebarOpen && "justify-center"
+              !effectiveOpen && "justify-center"
             )}
           >
             <LogOut
-              className={cn("shrink-0", isSidebarOpen ? "mr-3" : "")}
+              className={cn("shrink-0", effectiveOpen ? "mr-3" : "")}
               size={20}
             />
-            {isSidebarOpen && <span>Logout</span>}
+            {effectiveOpen && <span>Logout</span>}
           </button>
         </div>
       </div>
@@ -116,7 +126,7 @@ const Sidebar = () => {
 };
 
 const Navbar = () => {
-  const { user, logout, dailySales, notifications } = useApp();
+  const { user, logout, dailySales, notifications, markNotificationRead, deleteNotification, markAllNotificationsRead, clearNotifications } = useApp();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const location = useLocation();
@@ -146,25 +156,49 @@ const Navbar = () => {
         </div>
 
         <div className="flex items-center gap-2 sm:gap-4 relative">
-          <button
-            onClick={() => setIsNotificationsOpen(v => !v)}
-            className="relative rounded-lg p-2 text-slate-600 hover:bg-slate-100"
+          <div
+            onMouseEnter={() => setIsNotificationsOpen(true)}
+            onMouseLeave={() => setIsNotificationsOpen(false)}
           >
-            <Bell size={20} />
-            {notifications.length > 0 && (
-              <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-red-500 ring-2 ring-white"></span>
-            )}
-          </button>
-          {isNotificationsOpen && (
-            <div className="absolute right-0 top-12 w-80 rounded-2xl border border-slate-200 bg-white shadow-xl overflow-hidden">
+            <button
+              onClick={() => setIsNotificationsOpen(v => !v)}
+              className="relative rounded-lg p-2 text-slate-600 hover:bg-slate-100"
+            >
+              <Bell size={20} />
+              {notifications.some(n => !n.read) && (
+                <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-red-500 ring-2 ring-white"></span>
+              )}
+            </button>
+            {isNotificationsOpen && (
+              <div className="absolute right-0 top-12 w-80 rounded-2xl border border-slate-200 bg-white shadow-xl overflow-hidden">
               <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
                 <span className="text-sm font-bold text-slate-900">Notifications</span>
-                <button
-                  onClick={() => setIsNotificationsOpen(false)}
-                  className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-200"
-                >
-                  <X size={16} />
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => markAllNotificationsRead()}
+                    className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-200"
+                    title="Mark all as read"
+                  >
+                    <CheckCheck size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => clearNotifications()}
+                    className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-200"
+                    title="Delete all"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsNotificationsOpen(false)}
+                    className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-200"
+                    title="Close"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
               </div>
               <div className="max-h-72 overflow-y-auto">
                 {notifications.length === 0 ? (
@@ -178,12 +212,40 @@ const Navbar = () => {
                         <span
                           className={cn(
                             "mt-1 h-2.5 w-2.5 rounded-full",
-                            n.type === 'warning' ? "bg-amber-500" : n.type === 'error' ? "bg-rose-500" : n.type === 'success' ? "bg-emerald-500" : "bg-slate-400"
+                            n.read
+                              ? "bg-slate-200"
+                              : n.type === 'warning'
+                                ? "bg-amber-500"
+                                : n.type === 'error'
+                                  ? "bg-rose-500"
+                                  : n.type === 'success'
+                                    ? "bg-emerald-500"
+                                    : "bg-slate-400"
                           )}
                         ></span>
                         <div className="flex-1">
                           <p className="text-sm font-medium text-slate-800 leading-snug">{n.message}</p>
                           <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide mt-1">{n.type}</p>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {!n.read ? (
+                            <button
+                              type="button"
+                              onClick={() => markNotificationRead(n.id)}
+                              className="rounded-lg p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                              title="Mark as read"
+                            >
+                              <Check size={16} />
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => deleteNotification(n.id)}
+                            className="rounded-lg p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                            title="Delete"
+                          >
+                            <Trash2 size={16} />
+                          </button>
                         </div>
                       </div>
                     ))}
@@ -191,7 +253,8 @@ const Navbar = () => {
                 )}
               </div>
             </div>
-          )}
+            )}
+          </div>
           
           <div className="h-8 w-px bg-slate-200"></div>
           <div className="flex items-center gap-3 pl-2">
@@ -268,7 +331,7 @@ const Navbar = () => {
 };
 
 export const Layout = ({ children }) => {
-  const { isSidebarOpen, setIsSidebarOpen, user } = useApp();
+  const { isSidebarOpen, setIsSidebarOpen, isSidebarHidden, setIsSidebarHidden, user } = useApp();
   const location = useLocation();
 
   const filteredNavItems = navItems.filter(item => 
@@ -281,7 +344,7 @@ export const Layout = ({ children }) => {
       <div
         className={cn(
           "transition-all duration-300 ease-in-out",
-          isSidebarOpen ? "lg:ml-72" : "lg:ml-24"
+          isSidebarHidden ? "lg:ml-0" : (isSidebarOpen ? "lg:ml-72" : "lg:ml-24")
         )}
       >
         <Navbar />
@@ -292,12 +355,35 @@ export const Layout = ({ children }) => {
         </main>
         
         {/* Sidebar Toggle for Desktop */}
-        <button 
-          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-          className="fixed bottom-10 left-8 z-50 p-3 rounded-2xl bg-white border border-slate-200 shadow-xl text-slate-400 hover:text-primary-600 hover:border-primary-600 transition-all hidden lg:flex items-center justify-center"
-        >
-          {isSidebarOpen ? <ChevronLeft size={20} /> : <ChevronRight size={20} />}
-        </button>
+        {!isSidebarHidden ? (
+          <div className="fixed bottom-10 left-8 z-50 hidden lg:flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsSidebarHidden(true)}
+              className="p-3 rounded-2xl bg-white border border-slate-200 shadow-xl text-slate-400 hover:text-slate-900 hover:border-slate-300 transition-all flex items-center justify-center"
+              title="Hide sidebar"
+            >
+              <X size={20} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="p-3 rounded-2xl bg-white border border-slate-200 shadow-xl text-slate-400 hover:text-primary-600 hover:border-primary-600 transition-all flex items-center justify-center"
+              title="Collapse/expand"
+            >
+              {isSidebarOpen ? <ChevronLeft size={20} /> : <ChevronRight size={20} />}
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setIsSidebarHidden(false)}
+            className="fixed bottom-10 left-4 z-50 p-3 rounded-2xl bg-white border border-slate-200 shadow-xl text-slate-400 hover:text-primary-600 hover:border-primary-600 transition-all hidden lg:flex items-center justify-center"
+            title="Show sidebar"
+          >
+            <Menu size={20} />
+          </button>
+        )}
       </div>
       
       {/* Mobile Tab Bar (Bottom Nav) */}

@@ -22,12 +22,87 @@ export function AppProvider({ children }) {
   });
   const [accounts, setAccounts] = useState([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarHidden, setIsSidebarHidden] = useState(false);
   const [notifications, setNotifications] = useState([]);
+  const [activityLogs, setActivityLogs] = useState(() => {
+    try {
+      const raw = localStorage.getItem('activity_logs');
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
   const [globalSearchTerm, setGlobalSearchTerm] = useState('');
   const [categories, setCategories] = useState([]);
   const [products, setProducts] = useState([]);
-  const [ingredients, setIngredients] = useState([]);
-  const [addons, setAddons] = useState([]);
+  const [ingredients, setIngredients] = useState(() => {
+    try {
+      const raw = localStorage.getItem('pos_ingredients');
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+  const [ingredientCategories, setIngredientCategories] = useState(() => {
+    try {
+      const raw = localStorage.getItem('pos_ingredient_categories');
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+  const [materials, setMaterials] = useState(() => {
+    try {
+      const raw = localStorage.getItem('pos_materials');
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+  const [materialCategories, setMaterialCategories] = useState(() => {
+    try {
+      const raw = localStorage.getItem('pos_material_categories');
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+  const [addons, setAddons] = useState(() => {
+    try {
+      const raw = localStorage.getItem('pos_addons');
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+  const [addonCategories, setAddonCategories] = useState(() => {
+    try {
+      const raw = localStorage.getItem('pos_addon_categories');
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+  const [storeSettings, setStoreSettings] = useState(() => {
+    try {
+      const raw = localStorage.getItem('pos_store_settings');
+      const parsed = raw ? JSON.parse(raw) : null;
+      const open_time = parsed?.open_time ? String(parsed.open_time) : '09:00';
+      const close_time = parsed?.close_time ? String(parsed.close_time) : '21:00';
+      const days_open = Array.isArray(parsed?.days_open) ? parsed.days_open.map(n => Number(n)).filter(n => Number.isFinite(n)) : [0, 1, 2, 3, 4, 5, 6];
+      const day_overrides = parsed?.day_overrides && typeof parsed.day_overrides === 'object' ? parsed.day_overrides : {};
+      return { open_time, close_time, days_open, day_overrides };
+    } catch {
+      return { open_time: '09:00', close_time: '21:00', days_open: [0, 1, 2, 3, 4, 5, 6], day_overrides: {} };
+    }
+  });
   const [productSizes, setProductSizes] = useState([]);
   const [productSizeIngredients, setProductSizeIngredients] = useState([]);
   const [productIngredients, setProductIngredients] = useState([]);
@@ -111,11 +186,339 @@ export function AppProvider({ children }) {
 
   const addNotification = (message, type = 'info') => {
     const id = Date.now();
-    setNotifications(prev => [...prev, { id, message, type }]);
+    setNotifications(prev => [...prev, { id, message, type, read: false, created_at: new Date().toISOString() }]);
     const ttl = type === 'warning' || type === 'error' ? 15000 : 6000;
     setTimeout(() => {
       setNotifications(prev => prev.filter(n => n.id !== id));
     }, ttl);
+  };
+
+  const markNotificationRead = (id) => {
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+  };
+
+  const deleteNotification = (id) => {
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  };
+
+  const markAllNotificationsRead = () => {
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+  };
+
+  const clearNotifications = () => {
+    setNotifications([]);
+  };
+
+  const persistActivityLogs = (next) => {
+    try {
+      localStorage.setItem('activity_logs', JSON.stringify(next));
+    } catch {}
+  };
+
+  const persistIngredients = (next) => {
+    try {
+      localStorage.setItem('pos_ingredients', JSON.stringify(next));
+    } catch {}
+  };
+
+  const persistIngredientCategories = (next) => {
+    try {
+      localStorage.setItem('pos_ingredient_categories', JSON.stringify(next));
+    } catch {}
+  };
+
+  const persistMaterials = (next) => {
+    try {
+      localStorage.setItem('pos_materials', JSON.stringify(next));
+    } catch {}
+  };
+
+  const persistMaterialCategories = (next) => {
+    try {
+      localStorage.setItem('pos_material_categories', JSON.stringify(next));
+    } catch {}
+  };
+
+  const persistAddons = (next) => {
+    try {
+      localStorage.setItem('pos_addons', JSON.stringify(next));
+    } catch {}
+  };
+
+  const persistAddonCategories = (next) => {
+    try {
+      localStorage.setItem('pos_addon_categories', JSON.stringify(next));
+    } catch {}
+  };
+
+  const persistStoreSettings = (next) => {
+    try {
+      localStorage.setItem('pos_store_settings', JSON.stringify(next));
+    } catch {}
+  };
+
+  const withTimeout = (promise, ms = 5000) => {
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))
+    ]);
+  };
+
+  const fetchStoreSettings = async () => {
+    if (!isSupabaseConfigured) return storeSettings;
+    try {
+      const selectWithOverrides = 'open_time,close_time,days_open,day_overrides,updated_at';
+      const selectNoOverrides = 'open_time,close_time,days_open,updated_at';
+
+      let data = null;
+      let error = null;
+
+      const preferred = await withTimeout(
+        supabase.from('store_settings').select(selectWithOverrides).eq('id', 1).limit(1),
+        5000
+      );
+      data = preferred.data;
+      error = preferred.error;
+
+      if (error && String(error.message || '').toLowerCase().includes('day_overrides')) {
+        const retry = await withTimeout(
+          supabase.from('store_settings').select(selectNoOverrides).eq('id', 1).limit(1),
+          5000
+        );
+        data = retry.data;
+        error = retry.error;
+      }
+
+      if (error || !data?.[0]) {
+        const fallback = await withTimeout(
+          supabase
+            .from('store_settings')
+            .select(selectWithOverrides)
+            .order('updated_at', { ascending: false })
+            .limit(1),
+          5000
+        );
+        data = fallback.data;
+        error = fallback.error;
+
+        if (error && String(error.message || '').toLowerCase().includes('day_overrides')) {
+          const retry = await withTimeout(
+            supabase
+              .from('store_settings')
+              .select(selectNoOverrides)
+              .order('updated_at', { ascending: false })
+              .limit(1),
+            5000
+          );
+          data = retry.data;
+          error = retry.error;
+        }
+      }
+
+      if (error || !data?.[0]) return storeSettings;
+
+      const row = data[0];
+      const next = {
+        open_time: row.open_time ? String(row.open_time) : storeSettings.open_time,
+        close_time: row.close_time ? String(row.close_time) : storeSettings.close_time,
+        days_open: Array.isArray(row.days_open)
+          ? row.days_open.map(n => Number(n)).filter(n => Number.isFinite(n))
+          : storeSettings.days_open,
+        day_overrides:
+          row.day_overrides && typeof row.day_overrides === 'object' ? row.day_overrides : storeSettings.day_overrides || {}
+      };
+      setStoreSettings(next);
+      persistStoreSettings(next);
+      return next;
+    } catch {
+      return storeSettings;
+    }
+  };
+
+  const updateStoreSettings = async (updates) => {
+    const next = {
+      open_time: updates?.open_time ? String(updates.open_time) : storeSettings.open_time,
+      close_time: updates?.close_time ? String(updates.close_time) : storeSettings.close_time,
+      days_open: Array.isArray(updates?.days_open)
+        ? updates.days_open.map(n => Number(n)).filter(n => Number.isFinite(n))
+        : storeSettings.days_open,
+      day_overrides:
+        updates?.day_overrides && typeof updates.day_overrides === 'object' ? updates.day_overrides : storeSettings.day_overrides || {}
+    };
+    setStoreSettings(next);
+    persistStoreSettings(next);
+
+    if (!isSupabaseConfigured) {
+      addNotification('Store hours updated.', 'success');
+      await logActivity({ action: 'Updated store operational hours', area: 'settings', entityType: 'store_settings', entityId: 'default' });
+      return { ok: true };
+    }
+
+    try {
+      const updated_at = new Date().toISOString();
+      const basePayload = { ...next, updated_at };
+      const preferredPayload = { id: 1, ...basePayload };
+
+      const { error: upsertErr } = await withTimeout(
+        supabase.from('store_settings').upsert([preferredPayload], { onConflict: 'id' }),
+        5000
+      );
+
+      if (upsertErr) {
+        const { error: insErr } = await withTimeout(
+          supabase.from('store_settings').insert([basePayload]),
+          5000
+        );
+        if (insErr) throw insErr;
+      }
+
+      addNotification('Store hours updated.', 'success');
+      await logActivity({ action: 'Updated store operational hours', area: 'settings', entityType: 'store_settings', entityId: 'default' });
+      return { ok: true };
+    } catch {
+      addNotification('Store hours saved locally (database not available).', 'warning');
+      await logActivity({ action: 'Updated store operational hours', area: 'settings', entityType: 'store_settings', entityId: 'default' });
+      return { ok: true };
+    }
+  };
+
+  const addIngredientCategory = async (name) => {
+    const trimmed = (name || '').toString().trim();
+    if (!trimmed) return { ok: false };
+    setIngredientCategories(prev => {
+      const set = new Set([...(prev || []).map(x => String(x))]);
+      set.add(trimmed);
+      const next = Array.from(set).sort((a, b) => a.localeCompare(b));
+      persistIngredientCategories(next);
+      return next;
+    });
+    await logActivity({ action: `Created ingredient category: ${trimmed}`, area: 'inventory', entityType: 'ingredient_category', entityId: trimmed });
+    return { ok: true };
+  };
+
+  const addMaterialCategory = async (name) => {
+    const trimmed = (name || '').toString().trim();
+    if (!trimmed) return { ok: false };
+    setMaterialCategories(prev => {
+      const set = new Set([...(prev || []).map(x => String(x))]);
+      set.add(trimmed);
+      const next = Array.from(set).sort((a, b) => a.localeCompare(b));
+      persistMaterialCategories(next);
+      return next;
+    });
+    await logActivity({ action: `Created material category: ${trimmed}`, area: 'inventory', entityType: 'material_category', entityId: trimmed });
+    return { ok: true };
+  };
+
+  const addAddonCategory = async (name) => {
+    const trimmed = (name || '').toString().trim();
+    if (!trimmed) return { ok: false };
+    setAddonCategories(prev => {
+      const set = new Set([...(prev || []).map(x => String(x))]);
+      set.add(trimmed);
+      const next = Array.from(set).sort((a, b) => a.localeCompare(b));
+      persistAddonCategories(next);
+      return next;
+    });
+    await logActivity({ action: `Created add-on category: ${trimmed}`, area: 'inventory', entityType: 'addon_category', entityId: trimmed });
+    return { ok: true };
+  };
+
+  const ensureCategory = (kind, value) => {
+    const trimmed = (value || '').toString().trim();
+    if (!trimmed) return;
+    if (kind === 'ingredient') {
+      setIngredientCategories(prev => {
+        const set = new Set([...(prev || []).map(x => String(x))]);
+        set.add(trimmed);
+        const next = Array.from(set).sort((a, b) => a.localeCompare(b));
+        persistIngredientCategories(next);
+        return next;
+      });
+      return;
+    }
+    if (kind === 'material') {
+      setMaterialCategories(prev => {
+        const set = new Set([...(prev || []).map(x => String(x))]);
+        set.add(trimmed);
+        const next = Array.from(set).sort((a, b) => a.localeCompare(b));
+        persistMaterialCategories(next);
+        return next;
+      });
+      return;
+    }
+    if (kind === 'addon') {
+      setAddonCategories(prev => {
+        const set = new Set([...(prev || []).map(x => String(x))]);
+        set.add(trimmed);
+        const next = Array.from(set).sort((a, b) => a.localeCompare(b));
+        persistAddonCategories(next);
+        return next;
+      });
+    }
+  };
+
+  const fetchActivityLogs = async () => {
+    if (!isSupabaseConfigured) return activityLogs || [];
+    let { data, error } = await supabase
+      .from('activity_logs')
+      .select('id,created_at,actor_account_id,actor_name,action,area,entity_type,entity_id')
+      .order('created_at', { ascending: false })
+      .limit(200);
+    if (error && String(error.message || '').toLowerCase().includes('activity_logs')) return activityLogs || [];
+    if (error) return activityLogs || [];
+    const mapped = (data || []).map(r => ({
+      id: r.id,
+      created_at: r.created_at,
+      actor_account_id: r.actor_account_id ?? null,
+      actor_name: r.actor_name ?? null,
+      action: r.action ?? '',
+      area: r.area ?? null,
+      entity_type: r.entity_type ?? null,
+      entity_id: r.entity_id ?? null
+    }));
+    setActivityLogs(mapped);
+    persistActivityLogs(mapped);
+    return mapped;
+  };
+
+  const logActivity = async ({ action, area = null, entityType = null, entityId = null, actor = null } = {}) => {
+    const effectiveActor = actor || normalizedUser || null;
+    const actorAccountId =
+      effectiveActor?.account_id ?? effectiveActor?.accountId ?? effectiveActor?.email ?? effectiveActor?.id ?? null;
+    const actorName = effectiveActor?.name ?? null;
+    const entry = {
+      id: Date.now(),
+      created_at: new Date().toISOString(),
+      actor_account_id: actorAccountId ? String(actorAccountId) : null,
+      actor_name: actorName ? String(actorName) : null,
+      action: String(action || ''),
+      area,
+      entity_type: entityType,
+      entity_id: entityId == null ? null : String(entityId)
+    };
+    setActivityLogs(prev => {
+      const next = [entry, ...(prev || [])].slice(0, 200);
+      persistActivityLogs(next);
+      return next;
+    });
+
+    if (!isSupabaseConfigured) return { ok: true };
+    try {
+      const { error } = await supabase.from('activity_logs').insert([{
+        actor_account_id: entry.actor_account_id,
+        actor_name: entry.actor_name,
+        action: entry.action,
+        area: entry.area,
+        entity_type: entry.entity_type,
+        entity_id: entry.entity_id
+      }]);
+      if (error && String(error.message || '').toLowerCase().includes('activity_logs')) return { ok: true };
+      if (error) return { ok: false };
+      return { ok: true };
+    } catch {
+      return { ok: false };
+    }
   };
 
   const notifyLowStockIngredients = (list) => {
@@ -170,35 +573,112 @@ export function AppProvider({ children }) {
 
   const fetchIngredients = async () => {
     if (!isSupabaseConfigured) return [];
-    const { data, error } = await supabase
-      .from('ingredients')
-      .select('id,name,unit,quantity,min_stock,created_at')
-      .order('name', { ascending: true });
-    if (error) return [];
-    const mapped = (data || []).map(r => ({
-      ...r,
-      quantity: Number(r.quantity),
-      min_stock: Number(r.min_stock)
-    }));
-    setIngredients(mapped);
-    notifyLowStockIngredients(mapped);
-    return mapped;
+    try {
+      let { data, error } = await withTimeout(
+        supabase
+          .from('ingredients')
+          .select('id,name,category,unit,quantity,min_stock,created_at')
+          .order('name', { ascending: true }),
+        5000
+      );
+      if (error && String(error.message || '').toLowerCase().includes('category')) {
+        const retry = await withTimeout(
+          supabase
+            .from('ingredients')
+            .select('id,name,unit,quantity,min_stock,created_at')
+            .order('name', { ascending: true }),
+          5000
+        );
+        data = retry.data;
+        error = retry.error;
+      }
+      if (error) return ingredients || [];
+
+      const mapped = (data || []).map(r => ({
+        ...r,
+        category: r.category ?? null,
+        quantity: Number(r.quantity),
+        min_stock: Number(r.min_stock)
+      }));
+      setIngredients(mapped);
+      persistIngredients(mapped);
+      notifyLowStockIngredients(mapped);
+      return mapped;
+    } catch {
+      return ingredients || [];
+    }
+  };
+
+  const fetchMaterials = async () => {
+    if (!isSupabaseConfigured) return [];
+    try {
+      let { data, error } = await withTimeout(
+        supabase
+          .from('materials')
+          .select('id,name,category,unit,quantity,min_stock,created_at')
+          .order('name', { ascending: true }),
+        5000
+      );
+      if (error && String(error.message || '').toLowerCase().includes('category')) {
+        const retry = await withTimeout(
+          supabase
+            .from('materials')
+            .select('id,name,unit,quantity,min_stock,created_at')
+            .order('name', { ascending: true }),
+          5000
+        );
+        data = retry.data;
+        error = retry.error;
+      }
+      if (error) return materials || [];
+      const mapped = (data || []).map(r => ({
+        ...r,
+        category: r.category ?? null,
+        quantity: Number(r.quantity),
+        min_stock: Number(r.min_stock)
+      }));
+      setMaterials(mapped);
+      persistMaterials(mapped);
+      return mapped;
+    } catch {
+      return materials || [];
+    }
   };
 
   const fetchAddons = async () => {
     if (!isSupabaseConfigured) return [];
-    const { data, error } = await supabase
-      .from('addons')
-      .select('id,name,price_per_unit,variable_quantity,created_at')
-      .order('name', { ascending: true });
-    if (error) return [];
-    const mapped = (data || []).map(r => ({
-      ...r,
-      price_per_unit: Number(r.price_per_unit),
-      variable_quantity: Boolean(r.variable_quantity)
-    }));
-    setAddons(mapped);
-    return mapped;
+    try {
+      let { data, error } = await withTimeout(
+        supabase
+          .from('addons')
+          .select('id,name,category,price_per_unit,variable_quantity,created_at')
+          .order('name', { ascending: true }),
+        5000
+      );
+      if (error && String(error.message || '').toLowerCase().includes('category')) {
+        const retry = await withTimeout(
+          supabase
+            .from('addons')
+            .select('id,name,price_per_unit,variable_quantity,created_at')
+            .order('name', { ascending: true }),
+          5000
+        );
+        data = retry.data;
+        error = retry.error;
+      }
+      if (error) return addons || [];
+      const mapped = (data || []).map(r => ({
+        ...r,
+        category: r.category ?? null,
+        price_per_unit: Number(r.price_per_unit),
+        variable_quantity: Boolean(r.variable_quantity)
+      }));
+      setAddons(mapped);
+      persistAddons(mapped);
+      return mapped;
+    } catch {
+      return addons || [];
+    }
   };
 
   const fetchProductSizes = async () => {
@@ -273,15 +753,15 @@ export function AppProvider({ children }) {
     if (!isSupabaseConfigured) return [];
     let { data, error } = await supabase
       .from('sales')
-      .select('id,account_id,total_amount,payment_method,reference_number,cash_received,change_amount,created_at,accounts(name),transactions(id,quantity,price,subtotal,product_size_id,size_name,products(name),transaction_addons(quantity,unit_price,subtotal,addons(name)))')
+      .select('id,account_id,total_amount,payment_method,reference_number,cash_received,change_amount,created_at,accounts(name,account_id,email),transactions(id,product_id,quantity,price,subtotal,product_size_id,size_name,products(name,category_id),transaction_addons(quantity,unit_price,subtotal,addons(name)))')
       .order('created_at', { ascending: false })
-      .limit(200);
+      .limit(500);
     if (error && (String(error.message || '').toLowerCase().includes('cash_received') || String(error.message || '').toLowerCase().includes('change_amount'))) {
       const retry = await supabase
         .from('sales')
-        .select('id,account_id,total_amount,payment_method,reference_number,created_at,accounts(name),transactions(id,quantity,price,subtotal,product_size_id,size_name,products(name),transaction_addons(quantity,unit_price,subtotal,addons(name)))')
+        .select('id,account_id,total_amount,payment_method,reference_number,created_at,accounts(name,account_id,email),transactions(id,product_id,quantity,price,subtotal,product_size_id,size_name,products(name,category_id),transaction_addons(quantity,unit_price,subtotal,addons(name)))')
         .order('created_at', { ascending: false })
-        .limit(200);
+        .limit(500);
       data = retry.data;
       error = retry.error;
     }
@@ -289,9 +769,18 @@ export function AppProvider({ children }) {
     if (error && (String(error.message || '').toLowerCase().includes('product_size_id') || String(error.message || '').toLowerCase().includes('size_name'))) {
       const retry = await supabase
         .from('sales')
-        .select('id,account_id,total_amount,payment_method,reference_number,cash_received,change_amount,created_at,accounts(name),transactions(id,quantity,price,subtotal,products(name),transaction_addons(quantity,unit_price,subtotal,addons(name)))')
+        .select('id,account_id,total_amount,payment_method,reference_number,cash_received,change_amount,created_at,accounts(name,account_id,email),transactions(id,product_id,quantity,price,subtotal,products(name,category_id),transaction_addons(quantity,unit_price,subtotal,addons(name)))')
         .order('created_at', { ascending: false })
-        .limit(200);
+        .limit(500);
+      data = retry.data;
+      error = retry.error;
+    }
+    if (error && String(error.message || '').toLowerCase().includes('account_id') && String(error.message || '').toLowerCase().includes('accounts')) {
+      const retry = await supabase
+        .from('sales')
+        .select('id,account_id,total_amount,payment_method,reference_number,cash_received,change_amount,created_at,accounts(name,email),transactions(id,product_id,quantity,price,subtotal,product_size_id,size_name,products(name,category_id),transaction_addons(quantity,unit_price,subtotal,addons(name)))')
+        .order('created_at', { ascending: false })
+        .limit(500);
       data = retry.data;
       error = retry.error;
     }
@@ -305,8 +794,10 @@ export function AppProvider({ children }) {
       cash_received: s.cash_received ?? null,
       change_amount: s.change_amount ?? null,
       cashier: s.accounts?.name ?? 'Unknown',
+      cashier_account_id: s.accounts?.account_id ?? s.accounts?.email ?? null,
       items: (s.transactions || []).map(t => ({
         name: t.products?.name ?? 'Unknown',
+        category_id: t.products?.category_id ?? null,
         quantity: t.quantity,
         price: Number(t.price),
         subtotal: Number(t.subtotal),
@@ -323,24 +814,48 @@ export function AppProvider({ children }) {
     return mapped;
   };
 
-  const refreshDailySales = async () => {
-    if (!isSupabaseConfigured) return 0;
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const { data: reportData, error: reportErr } = await supabase
-      .from('sales_report')
-      .select('sale_date,total_revenue')
-      .eq('sale_date', todayStr)
-      .limit(1);
+  const getBusinessDayStart = () => {
+    const now = new Date();
+    const dayOfWeek = now.getDay();
+    let openTimeStr = storeSettings?.open_time || '00:00';
+    if (storeSettings?.day_overrides?.[dayOfWeek]?.open_time) {
+      openTimeStr = storeSettings.day_overrides[dayOfWeek].open_time;
+    }
+    const [openHour, openMinute] = openTimeStr.split(':').map(Number);
+    const todayOpenTime = new Date(now);
+    todayOpenTime.setHours(openHour || 0, openMinute || 0, 0, 0);
 
-    if (!reportErr) {
-      const total = Number(reportData?.[0]?.total_revenue || 0);
+    let businessDayStart = new Date(todayOpenTime);
+    if (now < todayOpenTime) {
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yDayOfWeek = yesterday.getDay();
+      let yOpenTimeStr = storeSettings?.open_time || '00:00';
+      if (storeSettings?.day_overrides?.[yDayOfWeek]?.open_time) {
+        yOpenTimeStr = storeSettings.day_overrides[yDayOfWeek].open_time;
+      }
+      const [yOpenHour, yOpenMinute] = yOpenTimeStr.split(':').map(Number);
+      businessDayStart = new Date(yesterday);
+      businessDayStart.setHours(yOpenHour || 0, yOpenMinute || 0, 0, 0);
+    }
+    return businessDayStart;
+  };
+
+  const refreshDailySales = async () => {
+    const businessDayStart = getBusinessDayStart();
+
+    if (!isSupabaseConfigured) {
+      const total = (sales || [])
+        .filter(s => new Date(s.created_at) >= businessDayStart)
+        .reduce((sum, row) => sum + Number(row.total_amount), 0);
       setDailySales(total);
       return total;
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const { data, error } = await supabase.from('sales').select('total_amount').gte('created_at', today.toISOString());
+    const { data, error } = await supabase
+      .from('sales')
+      .select('total_amount')
+      .gte('created_at', businessDayStart.toISOString());
     if (error) return 0;
     const total = (data || []).reduce((sum, row) => sum + Number(row.total_amount), 0);
     setDailySales(total);
@@ -414,6 +929,7 @@ export function AppProvider({ children }) {
     if (!isSupabaseConfigured) {
       const local = { id: `demo-${Date.now()}`, name: payload.name, role: payload.role, account_id: payload.account_id };
       setAccounts(prev => [local, ...prev]);
+      await logActivity({ action: `Created account: ${local.account_id} (${local.role})`, area: 'user_management', entityType: 'account', entityId: local.id });
       return { ok: true, account: local };
     }
 
@@ -436,23 +952,59 @@ export function AppProvider({ children }) {
     if (!data || !data[0]) {
       addNotification('Account created but not returned by server. Refreshing list...', 'warning');
       await fetchAccounts();
+      await logActivity({ action: `Created account: ${payload.account_id} (${payload.role})`, area: 'user_management', entityType: 'account', entityId: payload.account_id });
       return { ok: true };
     }
     setAccounts(prev => [data[0], ...prev]);
+    await logActivity({
+      action: `Created account: ${(data[0].account_id || data[0].email || payload.account_id)} (${data[0].role || payload.role})`,
+      area: 'user_management',
+      entityType: 'account',
+      entityId: data[0].id
+    });
     return { ok: true, account: data[0] };
   };
 
   const deleteAccount = async (id) => {
     if (normalizedUser?.id === id) return { ok: false };
+    const acct = accounts.find(a => a.id === id);
 
     if (!isSupabaseConfigured) {
       setAccounts(prev => prev.filter(a => a.id !== id));
+      await logActivity({ action: `Deleted account: ${(acct?.account_id || acct?.email || id)}`, area: 'user_management', entityType: 'account', entityId: id });
       return { ok: true };
     }
 
     const { error } = await supabase.from('accounts').delete().eq('id', id);
     if (error) return { ok: false };
     setAccounts(prev => prev.filter(a => a.id !== id));
+    await logActivity({ action: `Deleted account: ${(acct?.account_id || acct?.email || id)}`, area: 'user_management', entityType: 'account', entityId: id });
+    return { ok: true };
+  };
+
+  const updateAccountPassword = async ({ id, password }) => {
+    const nextPassword = (password || '').toString();
+    if (!id || !nextPassword) {
+      addNotification('Please enter a new password.', 'warning');
+      return { ok: false };
+    }
+    const acct = accounts.find(a => a.id === id);
+
+    if (!isSupabaseConfigured) {
+      setAccounts(prev => prev.map(a => a.id === id ? { ...a, password: nextPassword } : a));
+      addNotification('Password updated.', 'success');
+      await logActivity({ action: `Updated account password: ${(acct?.account_id || acct?.email || id)}`, area: 'user_management', entityType: 'account', entityId: id });
+      return { ok: true };
+    }
+
+    const { error } = await supabase.from('accounts').update({ password: nextPassword }).eq('id', id);
+    if (error) {
+      addNotification(error.message || 'Failed to update password.', 'error');
+      return { ok: false };
+    }
+    setAccounts(prev => prev.map(a => a.id === id ? { ...a, password: nextPassword } : a));
+    addNotification('Password updated.', 'success');
+    await logActivity({ action: `Updated account password: ${(acct?.account_id || acct?.email || id)}`, area: 'user_management', entityType: 'account', entityId: id });
     return { ok: true };
   };
 
@@ -476,13 +1028,50 @@ export function AppProvider({ children }) {
           { id: 3, name: 'Chips', category_id: 2, categoryName: 'Snacks', price: 15, stock: 30, barcode: null },
           { id: 4, name: 'Burger', category_id: 3, categoryName: 'Meals', price: 50, stock: 25, barcode: null }
         ]);
-        setIngredients([
-          { id: 1, name: 'Sugar', unit: 'g', quantity: 2000, min_stock: 500, created_at: new Date().toISOString() },
-          { id: 2, name: 'Milk', unit: 'ml', quantity: 5000, min_stock: 1000, created_at: new Date().toISOString() }
-        ]);
-        setAddons([
-          { id: 1, name: 'Pearls', price_per_unit: 10, variable_quantity: true, created_at: new Date().toISOString() }
-        ]);
+        if (!Array.isArray(ingredients) || ingredients.length === 0) {
+          const demoIngredients = [
+            { id: 1, name: 'Sugar', category: 'General', unit: 'g', quantity: 2000, min_stock: 500, created_at: new Date().toISOString() },
+            { id: 2, name: 'Milk', category: 'Milk', unit: 'ml', quantity: 5000, min_stock: 1000, created_at: new Date().toISOString() }
+          ];
+          setIngredients(demoIngredients);
+          persistIngredients(demoIngredients);
+        }
+        if (!Array.isArray(ingredientCategories) || ingredientCategories.length === 0) {
+          const next = ['General', 'Milk', 'Tea', 'Powder', 'Syrup', 'Fruit', 'Others'];
+          setIngredientCategories(next);
+          persistIngredientCategories(next);
+        }
+        if (!Array.isArray(materials) || materials.length === 0) {
+          const demoMaterials = [
+            { id: 1, name: 'Cups', category: 'Packaging', unit: 'pcs', quantity: 200, min_stock: 50, created_at: new Date().toISOString() },
+            { id: 2, name: 'Straws', category: 'Packaging', unit: 'pcs', quantity: 300, min_stock: 100, created_at: new Date().toISOString() },
+            { id: 3, name: 'Styro', category: 'Packaging', unit: 'pcs', quantity: 80, min_stock: 20, created_at: new Date().toISOString() }
+          ];
+          setMaterials(demoMaterials);
+          persistMaterials(demoMaterials);
+        }
+        if (!Array.isArray(materialCategories) || materialCategories.length === 0) {
+          const next = ['Packaging', 'Utensils', 'Misc'];
+          setMaterialCategories(next);
+          persistMaterialCategories(next);
+        }
+        if (!Array.isArray(addons) || addons.length === 0) {
+          const demoAddons = [
+            { id: 1, name: 'Pearls', category: 'Toppings', price_per_unit: 10, variable_quantity: true, created_at: new Date().toISOString() }
+          ];
+          setAddons(demoAddons);
+          persistAddons(demoAddons);
+        }
+        if (!Array.isArray(addonCategories) || addonCategories.length === 0) {
+          const next = ['Toppings', 'Extras', 'Others'];
+          setAddonCategories(next);
+          persistAddonCategories(next);
+        }
+        try {
+          if (!localStorage.getItem('pos_store_settings')) {
+            persistStoreSettings(storeSettings);
+          }
+        } catch {}
         setProductSizes([
           { id: 101, product_id: 1, name: 'Standard', price: 20, sort_order: 0, created_at: new Date().toISOString() },
           { id: 102, product_id: 2, name: 'Standard', price: 20, sort_order: 0, created_at: new Date().toISOString() },
@@ -506,13 +1095,16 @@ export function AppProvider({ children }) {
           fetchCategories(),
           fetchProducts(),
           fetchIngredients(),
+          fetchMaterials(),
           fetchAddons(),
+          fetchStoreSettings(),
           fetchProductSizes(),
           fetchProductSizeIngredients(),
           fetchProductIngredients(),
           fetchProductAddons(),
           fetchAddonIngredients(),
           fetchSales(),
+          fetchActivityLogs(),
           refreshDailySales(),
           fetchSalesReport({ days: 30 })
         ]);
@@ -540,6 +1132,7 @@ export function AppProvider({ children }) {
         : { id: 'demo-cashier', name: 'Cashier User', account_id: 'CSH000001', role: 'cashier' };
       setUser(demoUser);
       localStorage.setItem('pos_user', JSON.stringify(demoUser));
+      await logActivity({ actor: demoUser, action: 'Account login', area: 'auth' });
       return { success: true, role: demoUser.role };
     }
 
@@ -566,9 +1159,55 @@ export function AppProvider({ children }) {
       if (!found) return { success: false, message: 'Invalid account ID or password' };
       setUser(found);
       localStorage.setItem('pos_user', JSON.stringify(found));
+      await logActivity({ actor: found, action: 'Account login', area: 'auth' });
       return { success: true, role: found.role };
     } catch (err) {
       return { success: false, message: 'Cannot reach server. Check Supabase .env settings.' };
+    }
+  };
+
+  const verifyCredentials = async ({ accountId, password }) => {
+    const normalizedAccountId = (accountId || '').toString().trim().toUpperCase();
+    const normalizedPassword = (password || '').toString();
+    if (!normalizedAccountId || !normalizedPassword) return { ok: false };
+
+    if (!isSupabaseConfigured) {
+      const demoAdmin = normalizedAccountId === 'ADM000001' && normalizedPassword === 'admin123';
+      const demoCashier = normalizedAccountId === 'CSH000001' && normalizedPassword === 'cashier123';
+      const ok = demoAdmin || demoCashier;
+      if (!ok) return { ok: false };
+      if (!normalizedUser) return { ok: false };
+      const currentId = String(normalizedUser.account_id || normalizedUser.email || '').toUpperCase();
+      if (currentId !== normalizedAccountId) return { ok: false };
+      return { ok: true };
+    }
+
+    try {
+      let { data, error } = await supabase
+        .from('accounts')
+        .select('id,account_id,email')
+        .eq('account_id', normalizedAccountId)
+        .eq('password', normalizedPassword)
+        .limit(1);
+
+      if (error && String(error.message || '').toLowerCase().includes('account_id')) {
+        const retry = await supabase
+          .from('accounts')
+          .select('id,email')
+          .eq('email', normalizedAccountId)
+          .eq('password', normalizedPassword)
+          .limit(1);
+        data = retry.data;
+        error = retry.error;
+      }
+      if (error) return { ok: false };
+      const found = data?.[0];
+      if (!found) return { ok: false };
+      if (!normalizedUser) return { ok: false };
+      if (String(found.id) !== String(normalizedUser.id)) return { ok: false };
+      return { ok: true };
+    } catch {
+      return { ok: false };
     }
   };
 
@@ -626,22 +1265,27 @@ export function AppProvider({ children }) {
     if (!isSupabaseConfigured) {
       const local = { id: Date.now(), name: trimmed };
       setCategories(prev => [local, ...prev]);
+      await logActivity({ action: `Created category: ${trimmed}`, area: 'product_management', entityType: 'category', entityId: local.id });
       return { ok: true, category: local };
     }
     const { data, error } = await supabase.from('categories').insert([{ name: trimmed }]).select();
     if (error || !data) return { ok: false };
     setCategories(prev => [data[0], ...prev]);
+    await logActivity({ action: `Created category: ${trimmed}`, area: 'product_management', entityType: 'category', entityId: data[0].id });
     return { ok: true, category: data[0] };
   };
 
   const deleteCategory = async (id) => {
+    const name = categories.find(c => c.id === id)?.name ?? null;
     if (!isSupabaseConfigured) {
       setCategories(prev => prev.filter(c => c.id !== id));
+      await logActivity({ action: `Deleted category: ${name || id}`, area: 'product_management', entityType: 'category', entityId: id });
       return { ok: true };
     }
     const { error } = await supabase.from('categories').delete().eq('id', id);
     if (error) return { ok: false };
     setCategories(prev => prev.filter(c => c.id !== id));
+    await logActivity({ action: `Deleted category: ${name || id}`, area: 'product_management', entityType: 'category', entityId: id });
     return { ok: true };
   };
 
@@ -656,95 +1300,174 @@ export function AppProvider({ children }) {
     if (!isSupabaseConfigured) {
       const local = { ...insertPayload, id: Date.now(), categoryName: categories.find(c => c.id === insertPayload.category_id)?.name ?? null };
       setProducts(prev => [local, ...prev]);
+      await logActivity({ action: `Created product: ${local.name}`, area: 'product_management', entityType: 'product', entityId: local.id });
       return { ok: true, product: local };
     }
     const { data, error } = await supabase.from('products').insert([insertPayload]).select();
     if (error || !data) return { ok: false };
     const created = { ...data[0], categoryName: categories.find(c => c.id === data[0].category_id)?.name ?? null };
     setProducts(prev => [created, ...prev]);
+    await logActivity({ action: `Created product: ${created.name}`, area: 'product_management', entityType: 'product', entityId: created.id });
     return { ok: true, product: created };
   };
 
   const updateProduct = async (id, updates) => {
+    const name = products.find(p => p.id === id)?.name ?? null;
     const payload = { ...updates };
     if (payload.price !== undefined) payload.price = Number(payload.price);
     if (payload.stock !== undefined) payload.stock = Number(payload.stock);
     if (!isSupabaseConfigured) {
       setProducts(prev => prev.map(p => p.id === id ? { ...p, ...payload } : p));
+      await logActivity({ action: `Updated product: ${name || id}`, area: 'product_management', entityType: 'product', entityId: id });
       return { ok: true };
     }
     const { error } = await supabase.from('products').update(payload).eq('id', id);
     if (error) return { ok: false };
     setProducts(prev => prev.map(p => p.id === id ? { ...p, ...payload } : p));
+    await logActivity({ action: `Updated product: ${name || id}`, area: 'product_management', entityType: 'product', entityId: id });
     return { ok: true };
   };
 
   const deleteProduct = async (id) => {
+    const name = products.find(p => p.id === id)?.name ?? null;
     if (!isSupabaseConfigured) {
       setProducts(prev => prev.filter(p => p.id !== id));
+      await logActivity({ action: `Deleted product: ${name || id}`, area: 'product_management', entityType: 'product', entityId: id });
       return { ok: true };
     }
     const { error } = await supabase.from('products').delete().eq('id', id);
     if (error) return { ok: false };
     setProducts(prev => prev.filter(p => p.id !== id));
+    await logActivity({ action: `Deleted product: ${name || id}`, area: 'product_management', entityType: 'product', entityId: id });
     return { ok: true };
   };
 
   const createIngredient = async (payload) => {
     const insertPayload = {
       name: (payload.name || '').toString().trim(),
+      category: (payload.category || 'General').toString().trim(),
       unit: (payload.unit || 'pcs').toString(),
       quantity: Number(payload.quantity || 0),
       min_stock: Number(payload.min_stock || 0)
     };
     if (!insertPayload.name) return { ok: false };
+    ensureCategory('ingredient', insertPayload.category);
 
     if (!isSupabaseConfigured) {
       const local = { ...insertPayload, id: Date.now(), created_at: new Date().toISOString() };
-      setIngredients(prev => [local, ...prev]);
+      setIngredients(prev => {
+        const next = [local, ...(prev || [])];
+        persistIngredients(next);
+        return next;
+      });
       notifyLowStockIngredients([local]);
+      await logActivity({ action: `Created ingredient: ${local.name}`, area: 'inventory', entityType: 'ingredient', entityId: local.id });
       return { ok: true, ingredient: local };
     }
 
-    const { data, error } = await supabase
-      .from('ingredients')
-      .insert([insertPayload])
-      .select('id,name,unit,quantity,min_stock,created_at');
-    if (error || !data?.[0]) return { ok: false };
-    const created = { ...data[0], quantity: Number(data[0].quantity), min_stock: Number(data[0].min_stock) };
-    setIngredients(prev => [created, ...prev]);
-    notifyLowStockIngredients([created]);
-    return { ok: true, ingredient: created };
+    try {
+      const { data, error } = await withTimeout(
+        supabase
+          .from('ingredients')
+          .insert([insertPayload])
+          .select('id,name,category,unit,quantity,min_stock,created_at'),
+        5000
+      );
+      if (error || !data?.[0]) throw error || new Error('create failed');
+      const created = {
+        ...data[0],
+        category: data[0].category ?? insertPayload.category ?? null,
+        quantity: Number(data[0].quantity),
+        min_stock: Number(data[0].min_stock)
+      };
+      setIngredients(prev => {
+        const next = [created, ...(prev || [])];
+        persistIngredients(next);
+        return next;
+      });
+      notifyLowStockIngredients([created]);
+      await logActivity({ action: `Created ingredient: ${created.name}`, area: 'inventory', entityType: 'ingredient', entityId: created.id });
+      return { ok: true, ingredient: created };
+    } catch {
+      const local = { ...insertPayload, id: Date.now(), created_at: new Date().toISOString() };
+      setIngredients(prev => {
+        const next = [local, ...(prev || [])];
+        persistIngredients(next);
+        return next;
+      });
+      addNotification('Ingredient saved locally (database not available).', 'warning');
+      notifyLowStockIngredients([local]);
+      await logActivity({ action: `Created ingredient: ${local.name}`, area: 'inventory', entityType: 'ingredient', entityId: local.id });
+      return { ok: true, ingredient: local };
+    }
   };
 
   const updateIngredient = async (id, updates) => {
+    const name = ingredients.find(i => i.id === id)?.name ?? null;
     const payload = { ...updates };
+    if (payload.category !== undefined) payload.category = (payload.category || '').toString();
     if (payload.quantity !== undefined) payload.quantity = Number(payload.quantity);
     if (payload.min_stock !== undefined) payload.min_stock = Number(payload.min_stock);
 
     if (!isSupabaseConfigured) {
-      setIngredients(prev => prev.map(i => i.id === id ? { ...i, ...payload } : i));
+      setIngredients(prev => {
+        const next = (prev || []).map(i => i.id === id ? { ...i, ...payload } : i);
+        persistIngredients(next);
+        return next;
+      });
+      await logActivity({ action: `Updated ingredient: ${name || id}`, area: 'inventory', entityType: 'ingredient', entityId: id });
       return { ok: true };
     }
 
-    const { error } = await supabase.from('ingredients').update(payload).eq('id', id);
-    if (error) return { ok: false };
-    setIngredients(prev => prev.map(i => i.id === id ? { ...i, ...payload } : i));
-    return { ok: true };
+    try {
+      const { error } = await withTimeout(supabase.from('ingredients').update(payload).eq('id', id), 5000);
+      if (error) throw error;
+      setIngredients(prev => {
+        const next = (prev || []).map(i => i.id === id ? { ...i, ...payload } : i);
+        persistIngredients(next);
+        return next;
+      });
+      await logActivity({ action: `Updated ingredient: ${name || id}`, area: 'inventory', entityType: 'ingredient', entityId: id });
+      return { ok: true };
+    } catch {
+      setIngredients(prev => {
+        const next = (prev || []).map(i => i.id === id ? { ...i, ...payload } : i);
+        persistIngredients(next);
+        return next;
+      });
+      addNotification('Ingredient updated locally (database not available).', 'warning');
+      await logActivity({ action: `Updated ingredient: ${name || id}`, area: 'inventory', entityType: 'ingredient', entityId: id });
+      return { ok: true };
+    }
   };
 
   const deleteIngredient = async (id) => {
+    const name = ingredients.find(i => i.id === id)?.name ?? null;
     if (!isSupabaseConfigured) {
-      setIngredients(prev => prev.filter(i => i.id !== id));
+      setIngredients(prev => {
+        const next = (prev || []).filter(i => i.id !== id);
+        persistIngredients(next);
+        return next;
+      });
       setProductIngredients(prev => prev.filter(r => r.ingredient_id !== id));
       setAddonIngredients(prev => prev.filter(r => r.ingredient_id !== id));
+      await logActivity({ action: `Deleted ingredient: ${name || id}`, area: 'inventory', entityType: 'ingredient', entityId: id });
       return { ok: true };
     }
-    const { error } = await supabase.from('ingredients').delete().eq('id', id);
-    if (error) return { ok: false };
-    setIngredients(prev => prev.filter(i => i.id !== id));
+    try {
+      const { error } = await withTimeout(supabase.from('ingredients').delete().eq('id', id), 5000);
+      if (error) throw error;
+    } catch {
+      addNotification('Ingredient deleted locally (database not available).', 'warning');
+    }
+    setIngredients(prev => {
+      const next = (prev || []).filter(i => i.id !== id);
+      persistIngredients(next);
+      return next;
+    });
     setProductIngredients(prev => prev.filter(r => r.ingredient_id !== id));
     setAddonIngredients(prev => prev.filter(r => r.ingredient_id !== id));
+    await logActivity({ action: `Deleted ingredient: ${name || id}`, area: 'inventory', entityType: 'ingredient', entityId: id });
     return { ok: true };
   };
 
@@ -756,83 +1479,357 @@ export function AppProvider({ children }) {
 
     if (!isSupabaseConfigured) {
       const updated = { ...ing, quantity: nextQty };
-      setIngredients(prev => prev.map(x => x.id === ingredientId ? updated : x));
+      setIngredients(prev => {
+        const next = (prev || []).map(x => x.id === ingredientId ? updated : x);
+        persistIngredients(next);
+        return next;
+      });
       notifyLowStockIngredients([updated]);
+      if (String(reason || '').toLowerCase() !== 'sale') {
+        const unit = ing.unit ? ` ${ing.unit}` : '';
+        const sign = Number(change) >= 0 ? '+' : '';
+        await logActivity({ action: `Adjusted ingredient stock: ${ing.name} (${sign}${Number(change)}${unit})`, area: 'inventory', entityType: 'ingredient', entityId: ingredientId });
+      }
       return { ok: true };
     }
 
-    const { error: updErr } = await supabase.from('ingredients').update({ quantity: nextQty }).eq('id', ingredientId);
-    if (updErr) return { ok: false, error: updErr.message || 'Failed to update ingredient' };
-    const { error: logErr } = await supabase
-      .from('ingredient_logs')
-      .insert([{ ingredient_id: ingredientId, change: Number(change), reason }]);
-    if (logErr) return { ok: false, error: logErr.message || 'Failed to write ingredient log' };
+    try {
+      const { error: updErr } = await withTimeout(supabase.from('ingredients').update({ quantity: nextQty }).eq('id', ingredientId), 5000);
+      if (updErr) throw updErr;
+      const { error: logErr } = await withTimeout(
+        supabase.from('ingredient_logs').insert([{ ingredient_id: ingredientId, change: Number(change), reason }]),
+        5000
+      );
+      if (logErr) throw logErr;
+    } catch {
+      addNotification('Ingredient stock adjusted locally (database not available).', 'warning');
+    }
     const updated = { ...ing, quantity: nextQty };
-    setIngredients(prev => prev.map(x => x.id === ingredientId ? updated : x));
+    setIngredients(prev => {
+      const next = (prev || []).map(x => x.id === ingredientId ? updated : x);
+      persistIngredients(next);
+      return next;
+    });
     notifyLowStockIngredients([updated]);
+    if (String(reason || '').toLowerCase() !== 'sale') {
+      const unit = ing.unit ? ` ${ing.unit}` : '';
+      const sign = Number(change) >= 0 ? '+' : '';
+      await logActivity({ action: `Adjusted ingredient stock: ${ing.name} (${sign}${Number(change)}${unit})`, area: 'inventory', entityType: 'ingredient', entityId: ingredientId });
+    }
     return { ok: true };
+  };
+
+  const createMaterial = async (payload) => {
+    const insertPayload = {
+      name: (payload.name || '').toString().trim(),
+      category: (payload.category || 'General').toString().trim(),
+      unit: (payload.unit || 'pcs').toString(),
+      quantity: Number(payload.quantity || 0),
+      min_stock: Number(payload.min_stock || 0)
+    };
+    if (!insertPayload.name) return { ok: false };
+    ensureCategory('material', insertPayload.category);
+
+    if (!isSupabaseConfigured) {
+      const local = { ...insertPayload, id: Date.now(), created_at: new Date().toISOString() };
+      setMaterials(prev => {
+        const next = [local, ...(prev || [])];
+        persistMaterials(next);
+        return next;
+      });
+      await logActivity({ action: `Created material: ${local.name}`, area: 'inventory', entityType: 'material', entityId: local.id });
+      return { ok: true, material: local };
+    }
+
+    try {
+      const { data, error } = await withTimeout(
+        supabase
+          .from('materials')
+          .insert([insertPayload])
+          .select('id,name,category,unit,quantity,min_stock,created_at'),
+        5000
+      );
+      if (error || !data?.[0]) throw error || new Error('create failed');
+      const created = {
+        ...data[0],
+        category: data[0].category ?? insertPayload.category ?? null,
+        quantity: Number(data[0].quantity),
+        min_stock: Number(data[0].min_stock)
+      };
+      setMaterials(prev => {
+        const next = [created, ...(prev || [])];
+        persistMaterials(next);
+        return next;
+      });
+      await logActivity({ action: `Created material: ${created.name}`, area: 'inventory', entityType: 'material', entityId: created.id });
+      return { ok: true, material: created };
+    } catch {
+      const local = { ...insertPayload, id: Date.now(), created_at: new Date().toISOString() };
+      setMaterials(prev => {
+        const next = [local, ...(prev || [])];
+        persistMaterials(next);
+        return next;
+      });
+      addNotification('Material saved locally (database not available).', 'warning');
+      await logActivity({ action: `Created material: ${local.name}`, area: 'inventory', entityType: 'material', entityId: local.id });
+      return { ok: true, material: local };
+    }
+  };
+
+  const updateMaterial = async (id, updates) => {
+    const name = materials.find(m => m.id === id)?.name ?? null;
+    const payload = { ...updates };
+    if (payload.category !== undefined) payload.category = (payload.category || '').toString();
+    if (payload.quantity !== undefined) payload.quantity = Number(payload.quantity);
+    if (payload.min_stock !== undefined) payload.min_stock = Number(payload.min_stock);
+    if (payload.category) ensureCategory('material', payload.category);
+
+    if (!isSupabaseConfigured) {
+      setMaterials(prev => {
+        const next = (prev || []).map(m => m.id === id ? { ...m, ...payload } : m);
+        persistMaterials(next);
+        return next;
+      });
+      await logActivity({ action: `Updated material: ${name || id}`, area: 'inventory', entityType: 'material', entityId: id });
+      return { ok: true };
+    }
+
+    try {
+      const { error } = await withTimeout(supabase.from('materials').update(payload).eq('id', id), 5000);
+      if (error) throw error;
+      setMaterials(prev => {
+        const next = (prev || []).map(m => m.id === id ? { ...m, ...payload } : m);
+        persistMaterials(next);
+        return next;
+      });
+      await logActivity({ action: `Updated material: ${name || id}`, area: 'inventory', entityType: 'material', entityId: id });
+      return { ok: true };
+    } catch {
+      setMaterials(prev => {
+        const next = (prev || []).map(m => m.id === id ? { ...m, ...payload } : m);
+        persistMaterials(next);
+        return next;
+      });
+      addNotification('Material updated locally (database not available).', 'warning');
+      await logActivity({ action: `Updated material: ${name || id}`, area: 'inventory', entityType: 'material', entityId: id });
+      return { ok: true };
+    }
+  };
+
+  const deleteMaterial = async (id) => {
+    const name = materials.find(m => m.id === id)?.name ?? null;
+    if (!isSupabaseConfigured) {
+      setMaterials(prev => {
+        const next = (prev || []).filter(m => m.id !== id);
+        persistMaterials(next);
+        return next;
+      });
+      await logActivity({ action: `Deleted material: ${name || id}`, area: 'inventory', entityType: 'material', entityId: id });
+      return { ok: true };
+    }
+    try {
+      const { error } = await withTimeout(supabase.from('materials').delete().eq('id', id), 5000);
+      if (error) throw error;
+      setMaterials(prev => {
+        const next = (prev || []).filter(m => m.id !== id);
+        persistMaterials(next);
+        return next;
+      });
+      await logActivity({ action: `Deleted material: ${name || id}`, area: 'inventory', entityType: 'material', entityId: id });
+      return { ok: true };
+    } catch {
+      setMaterials(prev => {
+        const next = (prev || []).filter(m => m.id !== id);
+        persistMaterials(next);
+        return next;
+      });
+      addNotification('Material deleted locally (database not available).', 'warning');
+      await logActivity({ action: `Deleted material: ${name || id}`, area: 'inventory', entityType: 'material', entityId: id });
+      return { ok: true };
+    }
+  };
+
+  const adjustMaterialStock = async ({ materialId, change, reason }) => {
+    const m = materials.find(x => x.id === materialId);
+    if (!m) return { ok: false };
+    const nextQty = Number(m.quantity) + Number(change);
+    if (nextQty < 0) return { ok: false };
+
+    if (!isSupabaseConfigured) {
+      const updated = { ...m, quantity: nextQty };
+      setMaterials(prev => {
+        const next = (prev || []).map(x => x.id === materialId ? updated : x);
+        persistMaterials(next);
+        return next;
+      });
+      if (String(reason || '').toLowerCase() !== 'sale') {
+        const unit = m.unit ? ` ${m.unit}` : '';
+        const sign = Number(change) >= 0 ? '+' : '';
+        await logActivity({ action: `Adjusted material stock: ${m.name} (${sign}${Number(change)}${unit})`, area: 'inventory', entityType: 'material', entityId: materialId });
+      }
+      return { ok: true };
+    }
+
+    try {
+      const { error: updErr } = await withTimeout(supabase.from('materials').update({ quantity: nextQty }).eq('id', materialId), 5000);
+      if (updErr) throw updErr;
+      const updated = { ...m, quantity: nextQty };
+      setMaterials(prev => {
+        const next = (prev || []).map(x => x.id === materialId ? updated : x);
+        persistMaterials(next);
+        return next;
+      });
+      if (String(reason || '').toLowerCase() !== 'sale') {
+        const unit = m.unit ? ` ${m.unit}` : '';
+        const sign = Number(change) >= 0 ? '+' : '';
+        await logActivity({ action: `Adjusted material stock: ${m.name} (${sign}${Number(change)}${unit})`, area: 'inventory', entityType: 'material', entityId: materialId });
+      }
+      return { ok: true };
+    } catch {
+      const updated = { ...m, quantity: nextQty };
+      setMaterials(prev => {
+        const next = (prev || []).map(x => x.id === materialId ? updated : x);
+        persistMaterials(next);
+        return next;
+      });
+      addNotification('Material stock adjusted locally (database not available).', 'warning');
+      if (String(reason || '').toLowerCase() !== 'sale') {
+        const unit = m.unit ? ` ${m.unit}` : '';
+        const sign = Number(change) >= 0 ? '+' : '';
+        await logActivity({ action: `Adjusted material stock: ${m.name} (${sign}${Number(change)}${unit})`, area: 'inventory', entityType: 'material', entityId: materialId });
+      }
+      return { ok: true };
+    }
   };
 
   const createAddon = async (payload) => {
     const insertPayload = {
       name: (payload.name || '').toString().trim(),
+      category: (payload.category || 'General').toString().trim(),
       price_per_unit: Number(payload.price_per_unit || 0),
       variable_quantity: Boolean(payload.variable_quantity)
     };
     if (!insertPayload.name) return { ok: false };
+    ensureCategory('addon', insertPayload.category);
 
     if (!isSupabaseConfigured) {
       const local = { ...insertPayload, id: Date.now(), created_at: new Date().toISOString() };
-      setAddons(prev => [local, ...prev]);
+      setAddons(prev => {
+        const next = [local, ...(prev || [])];
+        persistAddons(next);
+        return next;
+      });
+      await logActivity({ action: `Created add-on: ${local.name}`, area: 'inventory', entityType: 'addon', entityId: local.id });
       return { ok: true, addon: local };
     }
 
-    const { data, error } = await supabase
-      .from('addons')
-      .insert([insertPayload])
-      .select('id,name,price_per_unit,variable_quantity,created_at');
-    if (error || !data?.[0]) return { ok: false };
-    const created = {
-      ...data[0],
-      price_per_unit: Number(data[0].price_per_unit),
-      variable_quantity: Boolean(data[0].variable_quantity)
-    };
-    setAddons(prev => [created, ...prev]);
-    return { ok: true, addon: created };
+    try {
+      const { data, error } = await withTimeout(
+        supabase
+          .from('addons')
+          .insert([insertPayload])
+          .select('id,name,category,price_per_unit,variable_quantity,created_at'),
+        5000
+      );
+      if (error || !data?.[0]) throw error || new Error('create failed');
+      const created = {
+        ...data[0],
+        category: data[0].category ?? insertPayload.category ?? null,
+        price_per_unit: Number(data[0].price_per_unit),
+        variable_quantity: Boolean(data[0].variable_quantity)
+      };
+      setAddons(prev => {
+        const next = [created, ...(prev || [])];
+        persistAddons(next);
+        return next;
+      });
+      await logActivity({ action: `Created add-on: ${created.name}`, area: 'inventory', entityType: 'addon', entityId: created.id });
+      return { ok: true, addon: created };
+    } catch {
+      const local = { ...insertPayload, id: Date.now(), created_at: new Date().toISOString() };
+      setAddons(prev => {
+        const next = [local, ...(prev || [])];
+        persistAddons(next);
+        return next;
+      });
+      addNotification('Add-on saved locally (database not available).', 'warning');
+      await logActivity({ action: `Created add-on: ${local.name}`, area: 'inventory', entityType: 'addon', entityId: local.id });
+      return { ok: true, addon: local };
+    }
   };
 
   const updateAddon = async (id, updates) => {
+    const name = addons.find(a => a.id === id)?.name ?? null;
     const payload = { ...updates };
+    if (payload.category !== undefined) payload.category = (payload.category || '').toString();
     if (payload.price_per_unit !== undefined) payload.price_per_unit = Number(payload.price_per_unit);
     if (payload.variable_quantity !== undefined) payload.variable_quantity = Boolean(payload.variable_quantity);
+    if (payload.category) ensureCategory('addon', payload.category);
 
     if (!isSupabaseConfigured) {
-      setAddons(prev => prev.map(a => a.id === id ? { ...a, ...payload } : a));
+      setAddons(prev => {
+        const next = (prev || []).map(a => a.id === id ? { ...a, ...payload } : a);
+        persistAddons(next);
+        return next;
+      });
+      await logActivity({ action: `Updated add-on: ${name || id}`, area: 'inventory', entityType: 'addon', entityId: id });
       return { ok: true };
     }
 
-    const { error } = await supabase.from('addons').update(payload).eq('id', id);
-    if (error) return { ok: false };
-    setAddons(prev => prev.map(a => a.id === id ? { ...a, ...payload } : a));
-    return { ok: true };
+    try {
+      const { error } = await withTimeout(supabase.from('addons').update(payload).eq('id', id), 5000);
+      if (error) throw error;
+      setAddons(prev => {
+        const next = (prev || []).map(a => a.id === id ? { ...a, ...payload } : a);
+        persistAddons(next);
+        return next;
+      });
+      await logActivity({ action: `Updated add-on: ${name || id}`, area: 'inventory', entityType: 'addon', entityId: id });
+      return { ok: true };
+    } catch {
+      setAddons(prev => {
+        const next = (prev || []).map(a => a.id === id ? { ...a, ...payload } : a);
+        persistAddons(next);
+        return next;
+      });
+      addNotification('Add-on updated locally (database not available).', 'warning');
+      await logActivity({ action: `Updated add-on: ${name || id}`, area: 'inventory', entityType: 'addon', entityId: id });
+      return { ok: true };
+    }
   };
 
   const deleteAddon = async (id) => {
+    const name = addons.find(a => a.id === id)?.name ?? null;
     if (!isSupabaseConfigured) {
-      setAddons(prev => prev.filter(a => a.id !== id));
+      setAddons(prev => {
+        const next = (prev || []).filter(a => a.id !== id);
+        persistAddons(next);
+        return next;
+      });
       setProductAddons(prev => prev.filter(r => r.addon_id !== id));
       setAddonIngredients(prev => prev.filter(r => r.addon_id !== id));
+      await logActivity({ action: `Deleted add-on: ${name || id}`, area: 'inventory', entityType: 'addon', entityId: id });
       return { ok: true };
     }
-    const { error } = await supabase.from('addons').delete().eq('id', id);
-    if (error) return { ok: false };
-    setAddons(prev => prev.filter(a => a.id !== id));
+    try {
+      const { error } = await withTimeout(supabase.from('addons').delete().eq('id', id), 5000);
+      if (error) throw error;
+    } catch {
+      addNotification('Add-on deleted locally (database not available).', 'warning');
+    }
+    setAddons(prev => {
+      const next = (prev || []).filter(a => a.id !== id);
+      persistAddons(next);
+      return next;
+    });
     setProductAddons(prev => prev.filter(r => r.addon_id !== id));
     setAddonIngredients(prev => prev.filter(r => r.addon_id !== id));
+    await logActivity({ action: `Deleted add-on: ${name || id}`, area: 'inventory', entityType: 'addon', entityId: id });
     return { ok: true };
   };
 
   const setProductSizesWithBOM = async (productId, sizes) => {
+    const productName = products.find(p => Number(p.id) === Number(productId))?.name ?? null;
     const normalized = (sizes || [])
       .map((s, idx) => ({
         name: (s.name || '').toString().trim(),
@@ -867,6 +1864,7 @@ export function AppProvider({ children }) {
         ...prev.filter(r => !localSizes.some(sz => sz.id === r.product_size_id)),
         ...localIngredients
       ]);
+      await logActivity({ action: `Updated product sizes/BOM: ${productName || productId}`, area: 'product_management', entityType: 'product', entityId: productId });
       return { ok: true };
     }
 
@@ -908,6 +1906,7 @@ export function AppProvider({ children }) {
 
     await fetchProductSizes();
     await fetchProductSizeIngredients();
+    await logActivity({ action: `Updated product sizes/BOM: ${productName || productId}`, area: 'product_management', entityType: 'product', entityId: productId });
     return { ok: true };
   };
 
@@ -936,6 +1935,7 @@ export function AppProvider({ children }) {
   };
 
   const setAddonBOM = async (addonId, lines) => {
+    const addonName = addons.find(a => Number(a.id) === Number(addonId))?.name ?? null;
     const rows = (lines || [])
       .filter(l => l.ingredient_id && Number(l.quantity) > 0)
       .map(l => ({
@@ -946,6 +1946,7 @@ export function AppProvider({ children }) {
 
     if (!isSupabaseConfigured) {
       setAddonIngredients(prev => [...prev.filter(r => r.addon_id !== addonId), ...rows]);
+      await logActivity({ action: `Updated add-on BOM: ${addonName || addonId}`, area: 'inventory', entityType: 'addon', entityId: addonId });
       return { ok: true };
     }
 
@@ -956,15 +1957,18 @@ export function AppProvider({ children }) {
       if (insErr) return { ok: false };
     }
     await fetchAddonIngredients();
+    await logActivity({ action: `Updated add-on BOM: ${addonName || addonId}`, area: 'inventory', entityType: 'addon', entityId: addonId });
     return { ok: true };
   };
 
   const setProductAddonsForProduct = async (productId, addonIds) => {
+    const productName = products.find(p => Number(p.id) === Number(productId))?.name ?? null;
     const ids = (addonIds || []).map(x => Number(x)).filter(Boolean);
     const rows = ids.map(aid => ({ product_id: productId, addon_id: aid }));
 
     if (!isSupabaseConfigured) {
       setProductAddons(prev => [...prev.filter(r => r.product_id !== productId), ...rows]);
+      await logActivity({ action: `Updated product add-ons: ${productName || productId}`, area: 'product_management', entityType: 'product', entityId: productId });
       return { ok: true };
     }
 
@@ -975,6 +1979,7 @@ export function AppProvider({ children }) {
       if (insErr) return { ok: false };
     }
     await fetchProductAddons();
+    await logActivity({ action: `Updated product add-ons: ${productName || productId}`, area: 'product_management', entityType: 'product', entityId: productId });
     return { ok: true };
   };
 
@@ -986,6 +1991,10 @@ export function AppProvider({ children }) {
 
     if (!isSupabaseConfigured) {
       setProducts(prev => prev.map(x => x.id === productId ? { ...x, stock: nextStock } : x));
+      if (String(reason || '').toLowerCase() !== 'sale') {
+        const sign = Number(change) >= 0 ? '+' : '';
+        await logActivity({ action: `Adjusted product stock: ${p.name} (${sign}${Number(change)})`, area: 'product_management', entityType: 'product', entityId: productId });
+      }
       return { ok: true };
     }
 
@@ -996,11 +2005,16 @@ export function AppProvider({ children }) {
       .insert([{ product_id: productId, change: Number(change), reason }]);
     if (logErr) return { ok: false, error: logErr.message || 'Failed to write inventory log' };
     setProducts(prev => prev.map(x => x.id === productId ? { ...x, stock: nextStock } : x));
+    if (String(reason || '').toLowerCase() !== 'sale') {
+      const sign = Number(change) >= 0 ? '+' : '';
+      await logActivity({ action: `Adjusted product stock: ${p.name} (${sign}${Number(change)})`, area: 'product_management', entityType: 'product', entityId: productId });
+    }
     return { ok: true };
   };
 
   const checkProductAvailability = (product, qty = 1, productSizeId = null) => {
     const requiredQty = Number(qty || 1);
+    if (product?.stock != null && Number(product.stock || 0) <= 0) return false;
     const pid = product?.id;
     const sizes = pid ? (sizesByProductId.get(pid) || []) : [];
     const resolvedSizeId = Number(productSizeId || sizes[0]?.id || 0) || null;
@@ -1045,6 +2059,29 @@ export function AppProvider({ children }) {
       }
 
       return { ok: missing.length === 0, missing };
+    }
+
+    const totals = new Map();
+    for (const item of cartItems || []) {
+      const productId = item.product_id ?? item.id;
+      totals.set(productId, (totals.get(productId) || 0) + Number(item.quantity || 0));
+    }
+    for (const [productId, requiredQty] of totals.entries()) {
+      const p = products.find(x => x.id === productId);
+      if (p?.stock != null) {
+        const available = Number(p.stock || 0);
+        if (available < requiredQty) {
+          return {
+            ok: false,
+            missing: [{
+              product_id: productId,
+              name: p?.name ?? 'Unknown',
+              required: requiredQty,
+              available
+            }]
+          };
+        }
+      }
     }
 
     const requiredByIngredient = new Map();
@@ -1124,6 +2161,11 @@ export function AppProvider({ children }) {
     }
 
     const normalizedPayment = String(paymentMethod || '').toLowerCase().includes('cash') ? 'Cash' : 'GCash';
+    const normalizedReference = referenceNumber == null ? null : String(referenceNumber).replaceAll(/[^\d]/g, '');
+    if (normalizedPayment !== 'Cash' && (!normalizedReference || normalizedReference.length !== 13)) {
+      addNotification('GCash reference number is required (13 digits).', 'warning');
+      return { ok: false };
+    }
     const cashReceivedNum = normalizedPayment === 'Cash' ? Number(cashReceived || 0) : null;
     const changeAmount = normalizedPayment === 'Cash' ? Math.max(0, Number(cashReceivedNum || 0) - Number(totalAmount || 0)) : null;
 
@@ -1159,7 +2201,7 @@ export function AppProvider({ children }) {
       account_id: normalizedUser?.id ?? null,
       total_amount: totalAmount,
       payment_method: normalizedPayment,
-      reference_number: referenceNumber || null,
+      reference_number: normalizedPayment === 'Cash' ? null : normalizedReference,
       cash_received: cashReceivedNum,
       change_amount: changeAmount
     };
@@ -1311,10 +2353,18 @@ export function AppProvider({ children }) {
     hasPermission,
     isSidebarOpen,
     setIsSidebarOpen,
+    isSidebarHidden,
+    setIsSidebarHidden,
     dailySales,
     salesReport,
     notifications,
     addNotification,
+    markNotificationRead,
+    deleteNotification,
+    markAllNotificationsRead,
+    clearNotifications,
+    activityLogs,
+    fetchActivityLogs,
     globalSearchTerm,
     setGlobalSearchTerm,
     checkProductAvailability,
@@ -1325,6 +2375,8 @@ export function AppProvider({ children }) {
     fetchAccounts,
     createAccount,
     deleteAccount,
+    updateAccountPassword,
+    verifyCredentials,
     categories,
     fetchCategories,
     createCategory,
@@ -1335,13 +2387,28 @@ export function AppProvider({ children }) {
     updateProduct,
     deleteProduct,
     adjustProductStock,
+    storeSettings,
+    fetchStoreSettings,
+    updateStoreSettings,
     ingredients,
+    ingredientCategories,
+    addIngredientCategory,
     fetchIngredients,
     createIngredient,
     updateIngredient,
     deleteIngredient,
     adjustIngredientStock,
+    materials,
+    materialCategories,
+    addMaterialCategory,
+    fetchMaterials,
+    createMaterial,
+    updateMaterial,
+    deleteMaterial,
+    adjustMaterialStock,
     addons,
+    addonCategories,
+    addAddonCategory,
     fetchAddons,
     createAddon,
     updateAddon,
@@ -1363,7 +2430,8 @@ export function AppProvider({ children }) {
     sales,
     fetchSales,
     refreshDailySales,
-    fetchSalesReport
+    fetchSalesReport,
+    getBusinessDayStart
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

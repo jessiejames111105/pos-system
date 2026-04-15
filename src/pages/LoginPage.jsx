@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { motion } from 'framer-motion';
-import { User, Lock, AlertCircle } from 'lucide-react';
+import { User, Lock, AlertCircle, Loader2 } from 'lucide-react';
 
 const LoginPage = () => {
   const { login } = useApp();
@@ -91,6 +91,7 @@ const LoginPage = () => {
               disabled={isLoading}
               className={`w-full bg-slate-900 text-white py-5 rounded-2xl font-bold uppercase tracking-wide transition-all shadow-xl shadow-slate-200 active:scale-[0.98] flex items-center justify-center gap-3 ${isLoading ? 'opacity-70 cursor-not-allowed' : 'hover:bg-slate-800'}`}
             >
+              {isLoading ? <Loader2 size={18} className="animate-spin" /> : null}
               {isLoading ? 'Verifying...' : 'Unlock System'}
             </button>
           </form>

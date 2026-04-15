@@ -13,7 +13,8 @@ import {
   ChevronRight,
   Info,
   ChevronLeft,
-  Filter
+  Filter,
+  Loader2
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -163,6 +164,8 @@ const POSPage = () => {
   const [lastTransaction, setLastTransaction] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState('Cash');
   const [cashReceived, setCashReceived] = useState('');
+  const [gcashReference, setGcashReference] = useState('');
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [isMobileCartOpen, setIsMobileCartOpen] = useState(false);
 
   // Customization State
@@ -178,14 +181,19 @@ const POSPage = () => {
     if (!isCheckoutModalOpen) return;
     if (paymentMethod !== 'Cash') {
       setCashReceived('');
-      return;
+    } else {
+      setCashReceived(String(cartTotal || ''));
     }
-    setCashReceived(String(cartTotal || ''));
+    if (paymentMethod !== 'GCash') {
+      setGcashReference('');
+    }
   }, [isCheckoutModalOpen, paymentMethod, cartTotal]);
 
   const cashReceivedNumber = Number(cashReceived || 0);
   const cashChange = cashReceivedNumber - Number(cartTotal || 0);
   const cashInvalid = paymentMethod === 'Cash' && (Number.isNaN(cashReceivedNumber) || cashReceivedNumber < Number(cartTotal || 0));
+  const gcashReferenceClean = String(gcashReference || '').replaceAll(/[^\d]/g, '');
+  const gcashInvalid = paymentMethod === 'GCash' && gcashReferenceClean.length !== 13;
 
   const availableAddons = useMemo(() => {
     const pid = selectedProduct?.id;
@@ -225,7 +233,7 @@ const POSPage = () => {
       product_size_id: selectedSize.id,
       size_name: selectedSize.name,
       displaySize: selectedSize.name,
-      displaySugar: selectedProduct.hasSugarLevel ? customSugar : null,
+      displaySugar: customSugar,
       displayAddons: customAddons.map(a => ({ name: a.name, price: a.unit_price, quantity: a.quantity })),
       addons: customAddons.map(a => ({ addon_id: a.addon_id, unit_price: a.unit_price, quantity: a.quantity })),
       basePrice,
@@ -238,6 +246,7 @@ const POSPage = () => {
 
   const handleCheckout = async () => {
     if (cart.length === 0) return;
+    if (isCheckingOut) return;
 
     const cartCheck = checkCartAvailability(cart);
     if (!cartCheck.ok) {
@@ -249,17 +258,25 @@ const POSPage = () => {
       addNotification('Enter the cash amount received (must be at least the total).', 'warning');
       return;
     }
+    if (paymentMethod === 'GCash' && gcashInvalid) {
+      addNotification('Enter a valid 13-digit GCash reference number.', 'warning');
+      return;
+    }
 
     const transactionData = {
       items: cart.map(item => ({
         name: item.name,
         price: item.price,
         quantity: item.quantity,
-        details: `${item.displaySize}${item.displaySugar ? ` | ${item.displaySugar}` : ''}`,
-        addons: item.displayAddons || []
+        details: `${item.displaySize}`,
+        addons: (item.displayAddons || []).map(a => ({
+          ...a,
+          quantity: Number(a.quantity || 0) * Number(item.quantity || 0)
+        }))
       })),
       total: cartTotal,
       paymentMethod,
+      referenceNumber: paymentMethod === 'GCash' ? gcashReferenceClean : null,
       cashReceived: paymentMethod === 'Cash' ? cashReceivedNumber : null,
       changeAmount: paymentMethod === 'Cash' ? Math.max(0, cashChange) : null
     };
@@ -274,23 +291,27 @@ const POSPage = () => {
       addons: item.addons || []
     }));
 
-    const result = await processCheckout({
-      items: checkoutItems,
-      paymentMethod,
-      referenceNumber: null,
-      cashReceived: paymentMethod === 'Cash' ? cashReceivedNumber : null
-    });
-    if (!result.ok) {
-      addNotification('Checkout failed. Please try again.', 'error');
-      return;
-    }
+    setIsCheckingOut(true);
+    try {
+      const result = await processCheckout({
+        items: checkoutItems,
+        paymentMethod,
+        referenceNumber: paymentMethod === 'GCash' ? gcashReferenceClean : null,
+        cashReceived: paymentMethod === 'Cash' ? cashReceivedNumber : null
+      });
+      if (!result.ok) {
+        addNotification('Checkout failed. Please try again.', 'error');
+        return;
+      }
 
-    setLastTransaction({ ...transactionData, id: result.sale?.id ?? null, date: new Date().toISOString() });
-    
-    // Reset state
-    clearCart();
-    setIsCheckoutModalOpen(false);
-    setIsCheckoutSuccessOpen(true);
+      setLastTransaction({ ...transactionData, id: result.sale?.id ?? null, date: new Date().toISOString() });
+      
+      clearCart();
+      setIsCheckoutModalOpen(false);
+      setIsCheckoutSuccessOpen(true);
+    } finally {
+      setIsCheckingOut(false);
+    }
   };
 
   const setAddonQuantity = (addon, qty) => {
@@ -336,7 +357,6 @@ const POSPage = () => {
         }];
       })(),
       basePrice: Number(p.price || 0),
-      hasSugarLevel: false,
       icon: '📦'
     }));
   }, [products, productSizes]);
@@ -420,6 +440,7 @@ const POSPage = () => {
               {filteredProducts.map(product => (
                 (() => {
                   const isAvailable = checkProductAvailability(product, 1);
+                  const isNoStock = product?.stock != null && Number(product.stock || 0) <= 0;
                   return (
                 <motion.button
                   whileHover={{ scale: 1.02 }}
@@ -441,11 +462,11 @@ const POSPage = () => {
                   </div>
                   <h3 className="font-bold text-slate-900 leading-tight mb-1 text-sm lg:text-base line-clamp-2">{product.name}</h3>
                   <p className="text-[10px] lg:text-xs text-slate-400 font-bold uppercase tracking-wide">
-                    {isAvailable ? 'Available' : 'Unavailable'}
+                    {isAvailable ? 'Available' : (isNoStock ? 'No Stock' : 'Unavailable')}
                   </p>
                   {!isAvailable && (
                     <span className="mt-3 inline-flex w-fit rounded-lg bg-slate-200 px-2 py-1 text-[10px] font-bold uppercase tracking-tight text-slate-600">
-                      Not Available
+                      {isNoStock ? 'No Stock' : 'Not Available'}
                     </span>
                   )}
                 </motion.button>
@@ -618,101 +639,123 @@ const POSPage = () => {
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                  {/* Sizes */}
+                <div className="space-y-8">
                   <div className="space-y-4">
                     <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wide flex items-center gap-2">
-                      <Filter size={14} /> Select Size
+                      <Filter size={14} /> Select Size <span className="text-rose-500">*</span>
                     </h4>
-                    <div className="flex flex-col gap-2">
-                      {(selectedProduct.sizeOptions || []).map(size => (
-                        <button
-                          key={size.key}
-                          onClick={() => setCustomSize(size.key)}
-                          className={`p-4 rounded-2xl text-left font-bold transition-all border-2 ${
-                            customSize === size.key
-                              ? 'bg-primary-50 border-primary-600 text-primary-700 shadow-md' 
-                              : 'bg-slate-50 border-transparent text-slate-500 hover:bg-slate-100'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="truncate">{size.name}</span>
-                            <span>₱{Number(size.price || 0).toLocaleString()}</span>
-                          </div>
-                        </button>
-                      ))}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {(selectedProduct.sizeOptions || []).map(size => {
+                        const selected = customSize === size.key;
+                        return (
+                          <button
+                            key={size.key}
+                            type="button"
+                            onClick={() => setCustomSize(size.key)}
+                            className={`p-4 rounded-2xl text-left font-bold transition-all border-2 ${
+                              selected
+                                ? 'bg-white border-primary-600 text-slate-900 shadow-md shadow-primary-100/40'
+                                : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <span className={`h-5 w-5 rounded-full border-2 flex items-center justify-center ${selected ? 'border-primary-600' : 'border-slate-300'}`}>
+                                  {selected ? <span className="h-2.5 w-2.5 rounded-full bg-primary-600" /> : null}
+                                </span>
+                                <span className="truncate">{size.name}</span>
+                              </div>
+                              <span className="font-extrabold">₱{Number(size.price || 0).toLocaleString()}</span>
+                            </div>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
 
-                  {/* Sugar Levels & Addons */}
-                  <div className="space-y-8">
-                    {selectedProduct.hasSugarLevel && (
-                      <div className="space-y-4">
-                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wide">Sugar Level</h4>
-                        <div className="flex flex-wrap gap-2">
-                          {['0%', '25%', '50%', '75%', '100%'].map(lvl => (
-                            <button
-                              key={lvl}
-                              onClick={() => setCustomSugar(lvl)}
-                              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border-2 ${
-                                customSugar === lvl 
-                                  ? 'bg-slate-900 border-slate-900 text-white' 
-                                  : 'bg-white border-slate-200 text-slate-500 hover:border-slate-400'
-                              }`}
-                            >
+                  <div className="space-y-4">
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wide">Sugar Level</h4>
+                    <div className="flex items-center justify-between gap-2">
+                      {['0%', '25%', '50%', '75%', '100%'].map(lvl => {
+                        const selected = customSugar === lvl;
+                        return (
+                          <button
+                            key={lvl}
+                            type="button"
+                            onClick={() => setCustomSugar(lvl)}
+                            className="flex flex-col items-center gap-2"
+                          >
+                            <span className={`h-5 w-5 rounded-full border-2 flex items-center justify-center ${selected ? 'border-primary-600' : 'border-slate-300'}`}>
+                              {selected ? <span className="h-2.5 w-2.5 rounded-full bg-primary-600" /> : null}
+                            </span>
+                            <span className={`text-xs font-bold uppercase tracking-wide ${selected ? 'text-primary-700' : 'text-slate-500'}`}>
                               {lvl}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
 
-                    <div className="space-y-4">
-                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wide">Add-ons</h4>
-                      <div className="space-y-2">
-                        {(availableAddons.length > 0 ? availableAddons : commonAddons).map(addon => {
-                          const addonId = addon.id ?? addon.addon_id;
-                          const selected = customAddons.find(a => a.addon_id === addonId);
-                          const unitPrice = Number(addon.price_per_unit ?? addon.unit_price ?? addon.price ?? 0);
-                          const qty = Number(selected?.quantity || 0);
-                          return (
-                            <div key={addonId} className="flex items-center justify-between gap-3 p-3 rounded-2xl border-2 border-slate-200 bg-white">
-                              <div className="min-w-0">
-                                <p className="font-bold text-slate-900 truncate">{addon.name}</p>
-                                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">₱{unitPrice.toLocaleString()} / unit</p>
+                  <div className="space-y-4">
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wide">
+                      Add-ons
+                    </h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {(availableAddons.length > 0 ? availableAddons : commonAddons).map(addon => {
+                        const addonId = addon.id ?? addon.addon_id;
+                        const selected = customAddons.find(a => a.addon_id === addonId);
+                        const unitPrice = Number(addon.price_per_unit ?? addon.unit_price ?? addon.price ?? 0);
+                        const qty = Number(selected?.quantity || 0);
+                        const isSelected = qty > 0;
+                        return (
+                          <div
+                            key={addonId}
+                            className={`rounded-2xl border-2 p-4 transition-all ${
+                              isSelected ? 'border-primary-600 bg-primary-50/40' : 'border-slate-200 bg-white hover:border-slate-300'
+                            }`}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => setAddonQuantity(addon, isSelected ? 0 : 1)}
+                              className="w-full flex items-center gap-3 text-left"
+                            >
+                              <span className={`h-5 w-5 rounded-md border-2 flex items-center justify-center ${isSelected ? 'border-primary-600 bg-primary-600' : 'border-slate-300 bg-white'}`}>
+                                {isSelected ? <span className="h-2 w-2 rounded-sm bg-white" /> : null}
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <div className="font-bold text-slate-900 truncate">{addon.name}</div>
+                                <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">+ ₱{unitPrice.toLocaleString()}</div>
                               </div>
-                              <div className="flex items-center gap-2">
+                              <div className="text-xs font-extrabold text-slate-900">{isSelected ? `x${qty}` : ''}</div>
+                            </button>
+                            {isSelected && (
+                              <div className="mt-3 flex items-center justify-end gap-2">
                                 <button
+                                  type="button"
                                   onClick={() => setAddonQuantity(addon, qty - 1)}
-                                  className="h-10 w-10 rounded-xl border-2 border-slate-200 text-slate-600 hover:border-primary-300 hover:text-primary-700 transition-all flex items-center justify-center"
+                                  className="h-9 w-9 rounded-xl border-2 border-slate-200 text-slate-600 hover:border-primary-300 hover:text-primary-700 transition-all flex items-center justify-center bg-white"
                                 >
                                   <Minus size={16} />
                                 </button>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="1"
-                                  value={qty}
-                                  onChange={(e) => setAddonQuantity(addon, e.target.value)}
-                                  className="w-16 h-10 text-center rounded-xl border-2 border-slate-200 font-bold text-slate-900 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none"
-                                />
+                                <div className="min-w-10 text-center font-bold text-slate-900">{qty}</div>
                                 <button
+                                  type="button"
                                   onClick={() => setAddonQuantity(addon, qty + 1)}
-                                  className="h-10 w-10 rounded-xl border-2 border-slate-200 text-slate-600 hover:border-primary-300 hover:text-primary-700 transition-all flex items-center justify-center"
+                                  className="h-9 w-9 rounded-xl border-2 border-slate-200 text-slate-600 hover:border-primary-300 hover:text-primary-700 transition-all flex items-center justify-center bg-white"
                                 >
                                   <Plus size={16} />
                                 </button>
                               </div>
-                            </div>
-                          );
-                        })}
-
-                        {availableAddons.length === 0 && commonAddons.length === 0 && (
-                          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-slate-500">
-                            No add-ons available for this product.
+                            )}
                           </div>
-                        )}
-                      </div>
+                        );
+                      })}
+                      {availableAddons.length === 0 && commonAddons.length === 0 && (
+                        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-slate-500 sm:col-span-2">
+                          No add-ons available for this product.
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -758,12 +801,10 @@ const POSPage = () => {
                   <span className="font-bold text-slate-400 uppercase text-[10px]">Selected Size</span>
                   <span className="font-bold text-slate-900">{previewItem.displaySize}</span>
                 </div>
-                {previewItem.displaySugar && (
-                  <div className="flex justify-between items-center border-b border-slate-200 pb-3">
-                    <span className="font-bold text-slate-400 uppercase text-[10px]">Sugar Level</span>
-                    <span className="font-bold text-slate-900">{previewItem.displaySugar}</span>
-                  </div>
-                )}
+                <div className="flex justify-between items-center border-b border-slate-200 pb-3">
+                  <span className="font-bold text-slate-400 uppercase text-[10px]">Sugar Level</span>
+                  <span className="font-bold text-slate-900">{previewItem.displaySugar || '100%'}</span>
+                </div>
                 <div className="flex justify-between items-start border-b border-slate-200 pb-3">
                   <span className="font-bold text-slate-400 uppercase text-[10px]">Add-ons</span>
                   <div className="text-right">
@@ -882,6 +923,30 @@ const POSPage = () => {
                     )}
                   </div>
                 )}
+                {paymentMethod === 'GCash' && (
+                  <div className="mt-5 rounded-3xl border border-slate-200 bg-white p-6 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-400 uppercase tracking-wide">Reference Number</span>
+                      <span className="text-xs font-bold text-slate-900">13 digits</span>
+                    </div>
+                    <input
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      maxLength={13}
+                      value={gcashReference}
+                      onChange={(e) => setGcashReference(e.target.value)}
+                      className={`w-full rounded-2xl border-2 p-4 text-lg font-bold focus:ring-4 focus:ring-primary-500/10 outline-none transition-all ${
+                        gcashInvalid ? 'border-rose-300 bg-rose-50/30 focus:border-rose-400' : 'border-slate-200 bg-slate-50 focus:border-primary-500'
+                      }`}
+                      placeholder="Enter 13-digit reference"
+                    />
+                    {gcashInvalid && (
+                      <div className="text-xs font-bold text-rose-600 uppercase tracking-wide">
+                        Reference number must be exactly 13 digits.
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-4">
@@ -893,10 +958,10 @@ const POSPage = () => {
                 </button>
                 <button 
                   onClick={handleCheckout}
-                  disabled={paymentMethod === 'Cash' && cashInvalid}
+                  disabled={isCheckingOut || (paymentMethod === 'Cash' && cashInvalid) || (paymentMethod === 'GCash' && gcashInvalid)}
                   className="flex-2 py-5 bg-primary-600 text-white font-bold rounded-3xl uppercase tracking-wide text-sm hover:bg-primary-700 shadow-xl shadow-primary-200 transition-all flex items-center justify-center gap-3"
                 >
-                  <CheckCircle2 size={20} />
+                  {isCheckingOut ? <Loader2 size={20} className="animate-spin" /> : <CheckCircle2 size={20} />}
                   Confirm ₱{cartTotal.toLocaleString()}
                 </button>
               </div>
@@ -934,20 +999,26 @@ const POSPage = () => {
                 <div className="rounded-3xl bg-slate-50 border border-slate-200 p-6 space-y-3">
                   <div className="flex justify-between items-center">
                     <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Payment Method</span>
-                    <span className="text-sm font-bold text-slate-900">{lastTransaction.paymentMethod}</span>
+                    <span className="text-sm font-bold text-slate-900">{String(lastTransaction.paymentMethod || '').toUpperCase()}</span>
                   </div>
-                  {lastTransaction.paymentMethod === 'Cash' && (
-                    <>
-                      <div className="flex justify-between items-center">
-                        <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Cash Received</span>
-                        <span className="text-sm font-bold text-slate-900">₱{Number(lastTransaction.cashReceived || 0).toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Change</span>
-                        <span className="text-sm font-bold text-emerald-600">₱{Number(lastTransaction.changeAmount || 0).toLocaleString()}</span>
-                      </div>
-                    </>
-                  )}
+                  {lastTransaction.referenceNumber ? (
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Reference Number</span>
+                      <span className="text-sm font-bold text-slate-900">{lastTransaction.referenceNumber}</span>
+                    </div>
+                  ) : null}
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Cash Received</span>
+                    <span className="text-sm font-bold text-slate-900">
+                      ₱{Number((String(lastTransaction.paymentMethod || '').toLowerCase().includes('cash') ? lastTransaction.cashReceived : lastTransaction.total) || 0).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Change</span>
+                    <span className="text-sm font-bold text-emerald-600">
+                      ₱{Number((String(lastTransaction.paymentMethod || '').toLowerCase().includes('cash') ? lastTransaction.changeAmount : 0) || 0).toLocaleString()}
+                    </span>
+                  </div>
                   <div className="flex justify-between items-center">
                     <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Items</span>
                     <span className="text-sm font-bold text-slate-900">{lastTransaction.items.length}</span>

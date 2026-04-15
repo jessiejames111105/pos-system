@@ -8,7 +8,8 @@ import {
   AlertTriangle,
   Filter,
   X,
-  Save
+  Save,
+  Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useApp } from '../store/AppContext';
@@ -114,10 +115,10 @@ const ProductManagement = () => {
       setSizes(existingSizes.map(sz => ({
         id: sz.id,
         name: sz.name,
-        price: sz.price,
+        price: sz.price == null ? '' : String(sz.price),
         bomLines: (productSizeIngredients || [])
           .filter(r => Number(r.product_size_id) === Number(sz.id))
-          .map(r => ({ ingredient_id: r.ingredient_id, quantity: r.quantity }))
+          .map(r => ({ ingredient_id: r.ingredient_id == null ? '' : String(r.ingredient_id), quantity: r.quantity == null ? '' : String(r.quantity) }))
       })));
     } else {
       setSizes([{ name: 'Standard', price: product.price ?? '', bomLines: [] }]);
@@ -255,7 +256,7 @@ const ProductManagement = () => {
               <select
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
-                className="px-4 py-2 rounded-xl border border-slate-200 bg-white font-bold text-slate-900 text-sm"
+                className="select-system select-filter"
               >
                 <option value="all">All Categories</option>
                 {categories.map(c => (
@@ -278,7 +279,14 @@ const ProductManagement = () => {
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className="h-10 w-10 rounded-lg bg-slate-100 flex items-center justify-center text-xl">📦</div>
-                        <span className="font-semibold text-slate-900">{product.name}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-slate-900">{product.name}</span>
+                          {product?.stock != null && Number(product.stock || 0) <= 0 ? (
+                            <span className="inline-flex w-fit rounded-lg bg-slate-200 px-2 py-1 text-[10px] font-bold uppercase tracking-tight text-slate-600">
+                              No Stock
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
                     </td>
                     <td className="px-6 py-4">
@@ -290,7 +298,7 @@ const ProductManagement = () => {
                       <span className="text-sm font-bold text-slate-900">₱{Number(product.price).toLocaleString()}</span>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex justify-end gap-2">
                         <button
                           onClick={() => handleEditProduct(product)}
                           className="p-2 text-slate-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-all"
@@ -366,7 +374,7 @@ const ProductManagement = () => {
                     <div className="space-y-2">
                       <label className="text-sm font-semibold text-slate-700">Category</label>
                       <select 
-                        className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all appearance-none bg-white"
+                        className="select-system w-full"
                         value={productForm.category}
                         onChange={(e) => setProductForm({...productForm, category: e.target.value})}
                       >
@@ -383,7 +391,7 @@ const ProductManagement = () => {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-primary-600 font-bold uppercase tracking-wider text-xs">
                       <Package size={14} />
-                      Sizes & Ingredients
+                      Ingredients (Per Size)
                     </div>
                     <button
                       type="button"
@@ -447,7 +455,7 @@ const ProductManagement = () => {
                             <div key={idx} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
                               <div className="md:col-span-7">
                                 <select
-                                  className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all bg-white"
+                                  className="select-system w-full"
                                   value={line.ingredient_id}
                                   onChange={(e) => {
                                     const v = e.target.value;
@@ -470,7 +478,7 @@ const ProductManagement = () => {
                                   min="0"
                                   step="0.001"
                                   className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all"
-                                  placeholder="Qty per size"
+                                  placeholder={`Qty (${ingredients.find(ing => String(ing.id) === String(line.ingredient_id))?.unit || 'unit'})`}
                                   value={line.quantity}
                                   onChange={(e) => {
                                     const v = e.target.value;
@@ -567,7 +575,7 @@ const ProductManagement = () => {
                   disabled={isSaving}
                   className="px-8 py-3 rounded-xl text-sm font-bold bg-primary-600 text-white hover:bg-primary-700 shadow-lg shadow-primary-200 flex items-center gap-2 transition-all active:scale-[0.98] disabled:bg-slate-200 disabled:shadow-none"
                 >
-                  <Save size={18} />
+                  {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
                   {isSaving ? 'Saving...' : 'Save Product'}
                 </button>
               </div>
@@ -631,8 +639,9 @@ const ProductManagement = () => {
                   <button
                     type="submit"
                     disabled={isCreatingCategory}
-                    className="flex-1 px-4 py-3 bg-primary-600 text-white font-bold rounded-xl hover:bg-primary-700 shadow-lg shadow-primary-200 transition-all text-xs uppercase disabled:bg-slate-200 disabled:shadow-none"
+                    className="flex-1 px-4 py-3 bg-primary-600 text-white font-bold rounded-xl hover:bg-primary-700 shadow-lg shadow-primary-200 transition-all text-xs uppercase disabled:bg-slate-200 disabled:shadow-none flex items-center justify-center gap-2"
                   >
+                    {isCreatingCategory ? <Loader2 size={16} className="animate-spin" /> : null}
                     {isCreatingCategory ? 'Saving...' : 'Save'}
                   </button>
                 </div>

@@ -1,20 +1,26 @@
 import React from 'react';
 import { Receipt } from 'lucide-react';
 
-const formatPeso = (n) => `₱${Number(n || 0).toLocaleString()}`;
+const formatPeso = (n) =>
+  `₱${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 
 const ReceiptPanel = ({ transaction, showPrint = true, onClose, onPrint }) => {
   if (!transaction) return null;
   const paymentText = String(transaction.paymentMethod || '');
-  const isCash =
+  const isCashMethod =
     paymentText.toLowerCase().includes('cash') ||
     transaction.cashReceived != null ||
     transaction.changeAmount != null;
-  const cashReceived = transaction.cashReceived == null && isCash ? Number(transaction.total || 0) : transaction.cashReceived;
+  const referenceNumber = transaction.referenceNumber ?? transaction.reference_number ?? null;
+  
+  const paymentLabel = paymentText ? String(paymentText).toUpperCase() : '—';
+  const cashReceived = transaction.cashReceived == null && isCashMethod ? Number(transaction.total || 0) : transaction.cashReceived;
   const changeAmount =
-    transaction.changeAmount == null && isCash
+    transaction.changeAmount == null && isCashMethod
       ? Math.max(0, Number(cashReceived || 0) - Number(transaction.total || 0))
       : transaction.changeAmount;
+  const paidAmount = isCashMethod ? cashReceived : Number(transaction.total || 0);
+  const displayChange = isCashMethod ? changeAmount : 0;
   const transId = String(transaction.id ?? '').trim();
   const date = transaction.date ? new Date(transaction.date) : new Date();
   const dateText = Number.isNaN(date.getTime()) ? '' : date.toLocaleString();
@@ -75,18 +81,24 @@ const ReceiptPanel = ({ transaction, showPrint = true, onClose, onPrint }) => {
             <span>Subtotal</span>
             <span className="text-slate-900 font-bold">{formatPeso(transaction.total)}</span>
           </div>
-          {isCash && (
-            <>
-              <div className="flex justify-between items-center text-sm font-bold text-slate-400 uppercase">
-                <span>Cash Received</span>
-                <span className="text-slate-900 font-bold">{cashReceived == null ? '—' : formatPeso(cashReceived)}</span>
-              </div>
-              <div className="flex justify-between items-center text-sm font-bold text-slate-400 uppercase">
-                <span>Change</span>
-                <span className="text-emerald-600 font-bold">{changeAmount == null ? '—' : formatPeso(changeAmount)}</span>
-              </div>
-            </>
-          )}
+          <div className="flex justify-between items-center text-sm font-bold text-slate-400 uppercase">
+            <span>Payment Method</span>
+            <span className="text-slate-900 font-bold">{paymentLabel}</span>
+          </div>
+          {referenceNumber ? (
+            <div className="flex justify-between items-center text-sm font-bold text-slate-400 uppercase">
+              <span>Reference Number</span>
+              <span className="text-slate-900 font-bold">{String(referenceNumber)}</span>
+            </div>
+          ) : null}
+          <div className="flex justify-between items-center text-sm font-bold text-slate-400 uppercase">
+            <span>Cash Received</span>
+            <span className="text-slate-900 font-bold">{paidAmount == null ? '—' : formatPeso(paidAmount)}</span>
+          </div>
+          <div className="flex justify-between items-center text-sm font-bold text-slate-400 uppercase">
+            <span>Change</span>
+            <span className="text-emerald-600 font-bold">{displayChange == null ? '—' : formatPeso(displayChange)}</span>
+          </div>
           <div className="flex justify-between items-center">
             <span className="text-sm font-bold text-slate-900 uppercase tracking-tight">
               Total Paid ({String(transaction.paymentMethod || '').toUpperCase()})
