@@ -22,6 +22,7 @@ import {
 import { useApp } from '../store/AppContext';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import NotificationToasts from './NotificationToasts';
 
 function cn(...inputs) {
   return twMerge(clsx(inputs));
@@ -125,9 +126,8 @@ const Sidebar = () => {
   );
 };
 
-const Navbar = () => {
+const Navbar = ({ setIsMobileMenuOpen }) => {
   const { user, logout, dailySales, notifications, markNotificationRead, deleteNotification, markAllNotificationsRead, clearNotifications } = useApp();
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const location = useLocation();
 
@@ -270,73 +270,27 @@ const Navbar = () => {
           </div>
         </div>
       </div>
-
-      {/* Mobile Sidebar Overlay */}
-      {isMobileMenuOpen && (
-        <div className="fixed inset-0 z-50 flex lg:hidden">
-          <div 
-            className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm" 
-            onClick={() => setIsMobileMenuOpen(false)}
-          ></div>
-          <div className="relative flex w-full max-w-xs flex-col bg-white p-4 shadow-xl">
-            <div className="mb-8 flex items-center justify-between">
-              <div>
-                <span className="text-xl font-bold text-slate-900 tracking-tight">
-                  Zwit<span className="text-primary-600">BlakTea</span>
-                </span>
-                <span className="text-xs text-slate-400 font-bold uppercase">{user?.role}</span>
-              </div>
-              <button 
-                onClick={() => setIsMobileMenuOpen(false)}
-                className="rounded-lg p-2 text-slate-600 hover:bg-slate-100"
-              >
-                <X size={24} />
-              </button>
-            </div>
-            <nav className="flex-1 space-y-2">
-              {filteredNavItems.map((item) => {
-                const isActive = location.pathname === item.path;
-                return (
-                  <NavLink
-                    key={item.name}
-                    to={item.path}
-                    onClick={() => setIsMobileMenuOpen(false)}
-                    className={cn(
-                      "flex items-center rounded-xl px-4 py-3 text-base font-medium transition-all",
-                      isActive
-                        ? "bg-primary-50 text-primary-700 shadow-sm"
-                        : "text-slate-600 hover:bg-slate-50"
-                    )}
-                  >
-                    <item.icon className={cn("mr-4", isActive ? "text-primary-600" : "text-slate-400")} size={24} />
-                    {item.name}
-                  </NavLink>
-                );
-              })}
-            </nav>
-            <div className="mt-auto border-t border-slate-100 pt-4">
-              <button 
-                onClick={logout}
-                className="flex w-full items-center rounded-xl px-4 py-3 text-base font-medium text-red-600 hover:bg-red-50"
-              >
-                <LogOut className="mr-4" size={24} />
-                Logout
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </header>
   );
 };
 
 export const Layout = ({ children }) => {
-  const { isSidebarOpen, setIsSidebarOpen, isSidebarHidden, setIsSidebarHidden, user } = useApp();
+  const { isSidebarOpen, setIsSidebarOpen, isSidebarHidden, setIsSidebarHidden, user, logout } = useApp();
   const location = useLocation();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const filteredNavItems = navItems.filter(item => 
     user?.role === 'admin' || item.role === 'cashier'
   );
+
+  useEffect(() => {
+    if (!isMobileMenuOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [isMobileMenuOpen]);
 
   return (
     <div className="min-h-screen bg-[#fdfbf7]">
@@ -347,7 +301,8 @@ export const Layout = ({ children }) => {
           isSidebarHidden ? "lg:ml-0" : (isSidebarOpen ? "lg:ml-72" : "lg:ml-24")
         )}
       >
-        <Navbar />
+        <Navbar setIsMobileMenuOpen={setIsMobileMenuOpen} />
+        <NotificationToasts />
         <main className="p-4 sm:p-6 lg:p-10">
           <div className="mx-auto max-w-[1600px]">
             {children}
@@ -385,8 +340,64 @@ export const Layout = ({ children }) => {
           </button>
         )}
       </div>
+
+      {isMobileMenuOpen ? (
+        <div className="fixed inset-0 z-[200] flex lg:hidden">
+          <div
+            className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm"
+            onClick={() => setIsMobileMenuOpen(false)}
+          ></div>
+          <div className="relative flex h-full w-full max-w-xs flex-col bg-white p-4 shadow-xl overflow-y-auto">
+            <div className="mb-8 flex items-center justify-between">
+              <div className="flex flex-col">
+                <span className="text-xl font-bold text-slate-900 tracking-tight leading-none">
+                  Zwit<span className="text-primary-600">BlakTea</span>
+                </span>
+                <span className="mt-1 text-xs text-slate-400 font-bold uppercase tracking-wide">{user?.role}</span>
+              </div>
+              <button
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="rounded-lg p-2 text-slate-600 hover:bg-slate-100"
+              >
+                <X size={24} />
+              </button>
+            </div>
+            <nav className="flex-1 space-y-2">
+              {filteredNavItems.map((item) => {
+                const isActive = location.pathname === item.path;
+                return (
+                  <NavLink
+                    key={item.name}
+                    to={item.path}
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className={cn(
+                      "flex items-center rounded-xl px-4 py-3 text-base font-medium transition-all",
+                      isActive
+                        ? "bg-primary-50 text-primary-700 shadow-sm"
+                        : "text-slate-600 hover:bg-slate-50"
+                    )}
+                  >
+                    <item.icon className={cn("mr-4", isActive ? "text-primary-600" : "text-slate-400")} size={24} />
+                    {item.name}
+                  </NavLink>
+                );
+              })}
+            </nav>
+            <div className="mt-auto border-t border-slate-100 pt-4">
+              <button
+                onClick={logout}
+                className="flex w-full items-center rounded-xl px-4 py-3 text-base font-medium text-red-600 hover:bg-red-50"
+              >
+                <LogOut className="mr-4" size={24} />
+                Logout
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       
       {/* Mobile Tab Bar (Bottom Nav) */}
+      {!isMobileMenuOpen ? (
       <nav className="fixed bottom-0 left-0 z-50 w-full border-t border-slate-200 bg-white/95 backdrop-blur-md lg:hidden">
         <div className={`grid h-16 px-2`} style={{ gridTemplateColumns: `repeat(${filteredNavItems.length}, 1fr)` }}>
           {filteredNavItems.map((item) => {
@@ -407,6 +418,7 @@ export const Layout = ({ children }) => {
           })}
         </div>
       </nav>
+      ) : null}
     </div>
   );
 };

@@ -46,6 +46,7 @@ const UserManagement = () => {
   const [formData, setFormData] = useState({
     name: '',
     role: 'cashier',
+    account_id: '',
     password: ''
   });
   const isAdmin = currentUser?.role === 'admin';
@@ -55,7 +56,7 @@ const UserManagement = () => {
   }, [globalSearchTerm]);
 
   const handleOpenModal = () => {
-    setFormData({ name: '', role: 'cashier', password: '' });
+    setFormData({ name: '', role: 'cashier', account_id: '', password: '' });
     setIsModalOpen(true);
   };
 
@@ -64,6 +65,7 @@ const UserManagement = () => {
     setPendingCreate({
       name: formData.name,
       role: formData.role,
+      account_id: formData.account_id,
       password: formData.password
     });
     setIsModalOpen(false);
@@ -168,7 +170,7 @@ const UserManagement = () => {
         setSuccessUser({
           name: pendingCreate.name,
           role: pendingCreate.role,
-          account_id: result.account?.account_id || result.account?.email || null
+          account_id: result.account?.account_id || result.account?.email || pendingCreate.account_id || null
         });
         setPendingCreate(null);
         setIsSuccessOpen(true);
@@ -384,9 +386,16 @@ const UserManagement = () => {
 
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-700 uppercase">Account ID</label>
-                  <div className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-400">
-                    Auto-generated (ADM / CSH)
-                  </div>
+                  <input
+                    type="text"
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all font-bold"
+                    placeholder="Optional (e.g. CASHIER02)"
+                    value={formData.account_id}
+                    onChange={(e) => setFormData({ ...formData, account_id: e.target.value })}
+                  />
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">
+                    Leave blank to auto-generate (ADM / CSH)
+                  </p>
                 </div>
 
                 <div className="space-y-1.5">

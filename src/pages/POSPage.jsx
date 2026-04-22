@@ -19,21 +19,22 @@ import {
 import { useApp } from '../store/AppContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import ReceiptPanel from '../components/ReceiptPanel';
+import SearchableSelect from '../components/SearchableSelect';
 
 const menuCategories = [
-  { id: 'milktea_classic', name: 'Milktea (Classic)', icon: '🧋', type: 'drink' },
-  { id: 'milktea_premium', name: 'Milktea (Premium)', icon: '✨', type: 'drink' },
-  { id: 'fruit_tea', name: 'Fruit Tea Series', icon: '🍎', type: 'drink' },
-  { id: 'yakult', name: 'Yakult Series', icon: '🥛', type: 'drink' },
-  { id: 'cheesecake', name: 'Cheesecake Series', icon: '🍰', type: 'drink' },
-  { id: 'ice_coffee', name: 'Ice Coffee', icon: '☕', type: 'drink' },
-  { id: 'estudyante', name: 'Estudyante Blend', icon: '🎒', type: 'drink' },
-  { id: 'fruity_soda', name: 'Fruity Soda', icon: '🥤', type: 'drink' },
-  { id: 'rice_meals', name: 'Rice Meals', icon: '🍛', type: 'food' },
-  { id: 'sandwiches', name: 'Sandwiches', icon: '🥪', type: 'food' },
-  { id: 'burgers', name: 'Burgers', icon: '🍔', type: 'food' },
-  { id: 'snacks', icon: '🍟', name: 'Snacks', type: 'food' },
-  { id: 'waffles', icon: '🧇', name: 'Waffles', type: 'food' },
+  { id: 'milktea_classic', name: 'Milktea (Classic)', type: 'drink' },
+  { id: 'milktea_premium', name: 'Milktea (Premium)', type: 'drink' },
+  { id: 'fruit_tea', name: 'Fruit Tea Series', type: 'drink' },
+  { id: 'yakult', name: 'Yakult Series', type: 'drink' },
+  { id: 'cheesecake', name: 'Cheesecake Series', type: 'drink' },
+  { id: 'ice_coffee', name: 'Ice Coffee', type: 'drink' },
+  { id: 'estudyante', name: 'Estudyante Blend', type: 'drink' },
+  { id: 'fruity_soda', name: 'Fruity Soda', type: 'drink' },
+  { id: 'rice_meals', name: 'Rice Meals', type: 'food' },
+  { id: 'sandwiches', name: 'Sandwiches', type: 'food' },
+  { id: 'burgers', name: 'Burgers', type: 'food' },
+  { id: 'snacks', name: 'Snacks', type: 'food' },
+  { id: 'waffles', name: 'Waffles', type: 'food' },
 ];
 
 const mockProducts = {
@@ -137,6 +138,7 @@ const POSPage = () => {
     cart,
     addToCart,
     updateQuantity,
+    updateCartItem,
     removeFromCart,
     clearCart,
     cartTotal,
@@ -157,6 +159,7 @@ const POSPage = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [previewItem, setPreviewItem] = useState(null);
+  const [editingCartItemId, setEditingCartItemId] = useState(null);
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [isCheckoutSuccessOpen, setIsCheckoutSuccessOpen] = useState(false);
@@ -172,6 +175,13 @@ const POSPage = () => {
   const [customSize, setCustomSize] = useState('');
   const [customSugar, setCustomSugar] = useState('100%');
   const [customAddons, setCustomAddons] = useState([]);
+  const [addonSearchPick, setAddonSearchPick] = useState('');
+
+  const closeCustomizer = () => {
+    setSelectedProduct(null);
+    setEditingCartItemId(null);
+    setAddonSearchPick('');
+  };
 
   useEffect(() => {
     setSearchTerm(globalSearchTerm || '');
@@ -198,9 +208,28 @@ const POSPage = () => {
   const availableAddons = useMemo(() => {
     const pid = selectedProduct?.id;
     if (!pid) return [];
-    const ids = (productAddons || []).filter(r => Number(r.product_id) === Number(pid)).map(r => r.addon_id);
-    return (addons || []).filter(a => ids.includes(a.id));
+    const ids = (productAddons || []).filter(r => String(r.product_id) === String(pid)).map(r => r.addon_id);
+    return (addons || []).filter(a => ids.some(x => String(x) === String(a.id)));
   }, [addons, productAddons, selectedProduct]);
+
+  const addonOptions = useMemo(() => {
+    const list = (availableAddons.length > 0 ? availableAddons : commonAddons) || [];
+    return list.map(a => ({
+      value: a.id ?? a.addon_id,
+      label: a.name,
+      group: 'Add-ons'
+    }));
+  }, [availableAddons]);
+
+  const addonByKey = useMemo(() => {
+    const list = (availableAddons.length > 0 ? availableAddons : commonAddons) || [];
+    const map = new Map();
+    for (const a of list) {
+      const key = String(a.id ?? a.addon_id);
+      map.set(key, a);
+    }
+    return map;
+  }, [availableAddons]);
 
   const handleCategorySelect = (cat) => {
     setSelectedCategory(cat);
@@ -217,6 +246,41 @@ const POSPage = () => {
     setCustomSize(product.sizeOptions?.[0]?.key || '');
     setCustomSugar('100%');
     setCustomAddons([]);
+    setAddonSearchPick('');
+    setEditingCartItemId(null);
+  };
+
+  const handleCartItemClick = (item) => {
+    setEditingCartItemId(item.id);
+    setSelectedProduct(item);
+    const sizeKey = (() => {
+      const opts = item.sizeOptions || [];
+      if (item.product_size_id != null) {
+        const found = opts.find(o => String(o.id) === String(item.product_size_id));
+        if (found?.key) return found.key;
+      }
+      if (item.size_name || item.displaySize) {
+        const found = opts.find(o => String(o.name) === String(item.size_name || item.displaySize));
+        if (found?.key) return found.key;
+      }
+      return opts[0]?.key || '';
+    })();
+    setCustomSize(sizeKey);
+    setCustomSugar(item.displaySugar || '100%');
+    const fromDisplay = (item.displayAddons || []).map(a => ({
+      addon_id: a.addon_id ?? a.id ?? null,
+      name: a.name,
+      unit_price: a.unit_price ?? a.price ?? 0,
+      quantity: a.quantity
+    })).filter(a => a.addon_id != null);
+    const fromRaw = (item.addons || []).map(a => ({
+      addon_id: a.addon_id,
+      name: (addons || []).find(x => String(x.id) === String(a.addon_id))?.name ?? 'Addon',
+      unit_price: a.unit_price ?? 0,
+      quantity: a.quantity
+    }));
+    setCustomAddons(fromDisplay.length > 0 ? fromDisplay : fromRaw);
+    setAddonSearchPick('');
   };
 
   const handleAddtoCheckout = () => {
@@ -226,10 +290,8 @@ const POSPage = () => {
       selectedProduct?.sizeOptions?.[0] ||
       { id: null, name: 'Standard', price: Number(selectedProduct?.basePrice || 0) };
     const basePrice = Number(selectedSize.price || 0);
-    const finalItem = {
-      ...selectedProduct,
-      product_id: selectedProduct.id,
-      id: `${selectedProduct.id}_${Date.now()}`,
+    const patch = {
+      product_id: selectedProduct?.product_id ?? selectedProduct?.id,
       product_size_id: selectedSize.id,
       size_name: selectedSize.name,
       displaySize: selectedSize.name,
@@ -237,11 +299,23 @@ const POSPage = () => {
       displayAddons: customAddons.map(a => ({ name: a.name, price: a.unit_price, quantity: a.quantity })),
       addons: customAddons.map(a => ({ addon_id: a.addon_id, unit_price: a.unit_price, quantity: a.quantity })),
       basePrice,
-      price: basePrice + addonsTotal,
+      price: basePrice + addonsTotal
+    };
+
+    if (editingCartItemId) {
+      updateCartItem(editingCartItemId, patch);
+      closeCustomizer();
+      return;
+    }
+
+    const finalItem = {
+      ...selectedProduct,
+      ...patch,
+      id: `${selectedProduct.id}_${Date.now()}`,
       quantity: 1
     };
     addToCart(finalItem);
-    setSelectedProduct(null);
+    closeCustomizer();
   };
 
   const handleCheckout = async () => {
@@ -319,7 +393,7 @@ const POSPage = () => {
     const unitPrice = Number(addon?.price_per_unit ?? addon?.unit_price ?? 0);
     const nextQty = Math.max(0, Math.floor(Number(qty || 0)));
     setCustomAddons(prev => {
-      const filtered = prev.filter(a => a.addon_id !== addonId);
+      const filtered = prev.filter(a => String(a.addon_id) !== String(addonId));
       if (nextQty <= 0) return filtered;
       return [
         ...filtered,
@@ -328,20 +402,12 @@ const POSPage = () => {
     });
   };
 
-  const categoryIcon = (name) => {
-    const n = String(name || '').toLowerCase();
-    if (n.includes('drink')) return '🥤';
-    if (n.includes('snack')) return '🍟';
-    if (n.includes('meal') || n.includes('rice')) return '🍛';
-    return '📦';
-  };
-
   const posProducts = useMemo(() => {
     return (products || []).map(p => ({
       ...p,
       sizeOptions: (() => {
         const sizes = (productSizes || [])
-          .filter(s => Number(s.product_id) === Number(p.id))
+          .filter(s => String(s.product_id) === String(p.id))
           .map(s => ({
             key: String(s.id),
             id: s.id,
@@ -357,14 +423,14 @@ const POSPage = () => {
         }];
       })(),
       basePrice: Number(p.price || 0),
-      icon: '📦'
+      icon: ''
     }));
   }, [products, productSizes]);
 
   const filteredProducts = useMemo(() => {
     const term = String(searchTerm || '').toLowerCase();
     const base = selectedCategory
-      ? posProducts.filter(p => Number(p.category_id) === Number(selectedCategory.id))
+      ? posProducts.filter(p => String(p.category_id) === String(selectedCategory.id))
       : posProducts;
     if (!term) {
       return selectedCategory ? base : [];
@@ -430,7 +496,6 @@ const POSPage = () => {
                   onClick={() => handleCategorySelect(cat)}
                   className="flex flex-col items-center justify-center p-6 lg:p-8 rounded-3xl border-2 border-slate-100 bg-slate-50 hover:border-primary-300 hover:bg-white transition-all group"
                 >
-                  <span className="text-4xl lg:text-5xl mb-4 group-hover:scale-110 transition-transform duration-300">{categoryIcon(cat.name)}</span>
                   <span className="font-bold text-slate-700 uppercase tracking-tight text-xs lg:text-sm text-center">{cat.name}</span>
                 </motion.button>
               ))}
@@ -455,9 +520,6 @@ const POSPage = () => {
                   }`}
                 >
                   <div className="flex justify-between items-start mb-4">
-                    <div className="h-10 w-10 lg:h-12 lg:w-12 rounded-2xl bg-slate-50 flex items-center justify-center text-xl lg:text-2xl group-hover:bg-primary-50 transition-colors">
-                      {categoryIcon(selectedCategory?.name)}
-                    </div>
                     <span className="text-primary-600 font-bold text-sm lg:text-lg">₱{product.basePrice}</span>
                   </div>
                   <h3 className="font-bold text-slate-900 leading-tight mb-1 text-sm lg:text-base line-clamp-2">{product.name}</h3>
@@ -534,7 +596,7 @@ const POSPage = () => {
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, scale: 0.95 }}
                     key={item.id}
-                    onClick={() => setPreviewItem(item)}
+                    onClick={() => handleCartItemClick(item)}
                     className="group relative flex flex-col p-4 rounded-2xl bg-slate-50 border border-slate-100 hover:border-primary-300 hover:bg-white transition-all cursor-pointer"
                   >
                     <div className="flex items-center justify-between mb-2">
@@ -620,7 +682,7 @@ const POSPage = () => {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
-              onClick={() => setSelectedProduct(null)}
+              onClick={closeCustomizer}
             />
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -634,7 +696,7 @@ const POSPage = () => {
                     <h2 className="text-4xl font-bold text-slate-900 tracking-tight mb-2">{selectedProduct.name}</h2>
                     <p className="text-slate-400 font-bold uppercase tracking-wide text-xs">Customize your order</p>
                   </div>
-                  <button onClick={() => setSelectedProduct(null)} className="p-3 rounded-2xl bg-slate-50 text-slate-400 hover:bg-red-50 hover:text-red-500 transition-all">
+                  <button onClick={closeCustomizer} className="p-3 rounded-2xl bg-slate-50 text-slate-400 hover:bg-red-50 hover:text-red-500 transition-all">
                     <X size={24} />
                   </button>
                 </div>
@@ -701,6 +763,22 @@ const POSPage = () => {
                     <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wide">
                       Add-ons
                     </h4>
+                    <SearchableSelect
+                      value={addonSearchPick}
+                      options={addonOptions}
+                      placeholder="Type add-on name..."
+                      onChange={(v) => {
+                        setAddonSearchPick(v);
+                        const key = String(v || '');
+                        if (!key) return;
+                        const addon = addonByKey.get(key);
+                        if (!addon) return;
+                        const addonId = addon.id ?? addon.addon_id;
+                        const selected = customAddons.find(a => String(a.addon_id) === String(addonId));
+                        const qty = Number(selected?.quantity || 0);
+                        setAddonQuantity(addon, qty > 0 ? qty + 1 : 1);
+                      }}
+                    />
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {(availableAddons.length > 0 ? availableAddons : commonAddons).map(addon => {
                         const addonId = addon.id ?? addon.addon_id;
@@ -764,7 +842,7 @@ const POSPage = () => {
                   onClick={handleAddtoCheckout}
                   className="w-full bg-primary-600 text-white py-6 rounded-[30px] font-bold uppercase tracking-wide text-lg hover:bg-primary-700 shadow-2xl shadow-primary-200 transition-all active:scale-[0.98] flex items-center justify-center gap-4"
                 >
-                  Add to Checkout
+                  {editingCartItemId ? 'Save Changes' : 'Add to Checkout'}
                   <ChevronRight size={24} />
                 </button>
               </div>
@@ -1062,7 +1140,6 @@ const POSPage = () => {
               <ReceiptPanel
                 transaction={lastTransaction}
                 onClose={() => setIsReceiptModalOpen(false)}
-                onPrint={() => window.print()}
               />
             </motion.div>
           </div>

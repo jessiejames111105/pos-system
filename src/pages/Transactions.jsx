@@ -431,7 +431,6 @@ const Transactions = () => {
               <ReceiptPanel
                 transaction={selectedTrx}
                 onClose={() => setIsReceiptOpen(false)}
-                onPrint={() => window.print()}
               />
             </motion.div>
           </div>

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Receipt } from 'lucide-react';
+import { openPrintReceipt } from '../lib/printReceipt';
 
 const formatPeso = (n) =>
   `₱${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
@@ -124,7 +125,7 @@ const ReceiptPanel = ({ transaction, showPrint = true, onClose, onPrint }) => {
         </button>
         {showPrint ? (
           <button
-            onClick={onPrint}
+            onClick={onPrint || (() => openPrintReceipt({ transaction }))}
             className="p-5 bg-slate-100 text-slate-400 rounded-3xl hover:bg-slate-200 transition-all"
           >
             <Receipt size={24} />

@@ -34,13 +34,68 @@ export function AppProvider({ children }) {
     }
   });
   const [globalSearchTerm, setGlobalSearchTerm] = useState('');
-  const [categories, setCategories] = useState([]);
-  const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState(() => {
+    try {
+      const raw = localStorage.getItem('pos_categories');
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+  const [products, setProducts] = useState(() => {
+    try {
+      const raw = localStorage.getItem('pos_products');
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
   const [ingredients, setIngredients] = useState(() => {
     try {
       const raw = localStorage.getItem('pos_ingredients');
       const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed : [];
+      const list = Array.isArray(parsed) ? parsed : [];
+
+      try {
+        const rawMaterials = localStorage.getItem('pos_materials');
+        const parsedMaterials = rawMaterials ? JSON.parse(rawMaterials) : [];
+        const mats = Array.isArray(parsedMaterials) ? parsedMaterials : [];
+
+        const used = new Set(list.map(i => String(i?.id)));
+        let nextId = 1;
+        for (const i of list) {
+          const n = Number(i?.id);
+          if (Number.isFinite(n)) nextId = Math.max(nextId, n + 1);
+        }
+
+        const keyOf = (row) => `${String(row?.name || '').trim().toLowerCase()}|${String(row?.unit || '').trim().toLowerCase()}`;
+        const existingKeys = new Set(list.map(keyOf));
+
+        for (const m of mats) {
+          const name = String(m?.name || '').trim();
+          if (!name) continue;
+          const unit = String(m?.unit || 'pcs');
+          const key = `${name.toLowerCase()}|${String(unit || '').trim().toLowerCase()}`;
+          if (existingKeys.has(key)) continue;
+
+          while (used.has(String(nextId))) nextId += 1;
+          used.add(String(nextId));
+          existingKeys.add(key);
+          list.push({
+            ...m,
+            id: nextId,
+            name,
+            unit,
+            quantity: Number(m?.quantity || 0),
+            min_stock: Number(m?.min_stock || 0)
+          });
+          nextId += 1;
+        }
+      } catch {}
+
+      return list;
     } catch {
       return [];
     }
@@ -98,17 +153,86 @@ export function AppProvider({ children }) {
       const close_time = parsed?.close_time ? String(parsed.close_time) : '21:00';
       const days_open = Array.isArray(parsed?.days_open) ? parsed.days_open.map(n => Number(n)).filter(n => Number.isFinite(n)) : [0, 1, 2, 3, 4, 5, 6];
       const day_overrides = parsed?.day_overrides && typeof parsed.day_overrides === 'object' ? parsed.day_overrides : {};
-      return { open_time, close_time, days_open, day_overrides };
+      const is_open = parsed?.is_open === false ? false : true;
+      const opened_at = parsed?.opened_at ? String(parsed.opened_at) : null;
+      const closed_at = parsed?.closed_at ? String(parsed.closed_at) : null;
+      return { open_time, close_time, days_open, day_overrides, is_open, opened_at, closed_at };
     } catch {
-      return { open_time: '09:00', close_time: '21:00', days_open: [0, 1, 2, 3, 4, 5, 6], day_overrides: {} };
+      return { open_time: '09:00', close_time: '21:00', days_open: [0, 1, 2, 3, 4, 5, 6], day_overrides: {}, is_open: true, opened_at: null, closed_at: null };
     }
   });
-  const [productSizes, setProductSizes] = useState([]);
-  const [productSizeIngredients, setProductSizeIngredients] = useState([]);
-  const [productIngredients, setProductIngredients] = useState([]);
-  const [productAddons, setProductAddons] = useState([]);
-  const [addonIngredients, setAddonIngredients] = useState([]);
-  const [sales, setSales] = useState([]);
+  const [productSizes, setProductSizes] = useState(() => {
+    try {
+      const raw = localStorage.getItem('pos_product_sizes');
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+  const [productSizeIngredients, setProductSizeIngredients] = useState(() => {
+    try {
+      const raw = localStorage.getItem('pos_product_size_ingredients');
+      const parsed = raw ? JSON.parse(raw) : [];
+      const list = Array.isArray(parsed) ? parsed : [];
+      return list.map(r => {
+        const rawId = r?.ingredient_id;
+        const str = String(rawId ?? '');
+        const normalized = str.startsWith('mat:') ? Number(str.slice(4)) : Number(rawId);
+        return { ...r, ingredient_id: Number.isFinite(normalized) ? normalized : rawId };
+      });
+    } catch {
+      return [];
+    }
+  });
+  const [productIngredients, setProductIngredients] = useState(() => {
+    try {
+      const raw = localStorage.getItem('pos_product_ingredients');
+      const parsed = raw ? JSON.parse(raw) : [];
+      const list = Array.isArray(parsed) ? parsed : [];
+      return list.map(r => {
+        const rawId = r?.ingredient_id;
+        const str = String(rawId ?? '');
+        const normalized = str.startsWith('mat:') ? Number(str.slice(4)) : Number(rawId);
+        return { ...r, ingredient_id: Number.isFinite(normalized) ? normalized : rawId };
+      });
+    } catch {
+      return [];
+    }
+  });
+  const [productAddons, setProductAddons] = useState(() => {
+    try {
+      const raw = localStorage.getItem('pos_product_addons');
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+  const [addonIngredients, setAddonIngredients] = useState(() => {
+    try {
+      const raw = localStorage.getItem('pos_addon_ingredients');
+      const parsed = raw ? JSON.parse(raw) : [];
+      const list = Array.isArray(parsed) ? parsed : [];
+      return list.map(r => {
+        const rawId = r?.ingredient_id;
+        const str = String(rawId ?? '');
+        const normalized = str.startsWith('mat:') ? Number(str.slice(4)) : Number(rawId);
+        return { ...r, ingredient_id: Number.isFinite(normalized) ? normalized : rawId };
+      });
+    } catch {
+      return [];
+    }
+  });
+  const [sales, setSales] = useState(() => {
+    try {
+      const raw = localStorage.getItem('pos_sales');
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
   const [dailySales, setDailySales] = useState(0);
   const [salesReport, setSalesReport] = useState([]);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
@@ -120,19 +244,28 @@ export function AppProvider({ children }) {
   }, [user]);
 
   const ingredientById = useMemo(() => {
-    return new Map((ingredients || []).map(i => [i.id, i]));
+    return new Map((ingredients || []).map(i => [String(i.id), i]));
   }, [ingredients]);
 
+  const materialById = useMemo(() => {
+    return new Map((materials || []).map(m => [String(m.id), m]));
+  }, [materials]);
+
   const addonById = useMemo(() => {
-    return new Map((addons || []).map(a => [a.id, a]));
+    return new Map((addons || []).map(a => [String(a.id), a]));
   }, [addons]);
+
+  const parseBomRef = (raw) => {
+    const v = String(raw || '');
+    return { type: 'ingredient', id: v };
+  };
 
   const productBomByProductId = useMemo(() => {
     const map = new Map();
     for (const row of productIngredients || []) {
-      const list = map.get(row.product_id) || [];
+      const list = map.get(String(row.product_id)) || [];
       list.push(row);
-      map.set(row.product_id, list);
+      map.set(String(row.product_id), list);
     }
     return map;
   }, [productIngredients]);
@@ -140,9 +273,9 @@ export function AppProvider({ children }) {
   const addonBomByAddonId = useMemo(() => {
     const map = new Map();
     for (const row of addonIngredients || []) {
-      const list = map.get(row.addon_id) || [];
+      const list = map.get(String(row.addon_id)) || [];
       list.push(row);
-      map.set(row.addon_id, list);
+      map.set(String(row.addon_id), list);
     }
     return map;
   }, [addonIngredients]);
@@ -150,9 +283,9 @@ export function AppProvider({ children }) {
   const addonIdsByProductId = useMemo(() => {
     const map = new Map();
     for (const row of productAddons || []) {
-      const list = map.get(row.product_id) || [];
+      const list = map.get(String(row.product_id)) || [];
       list.push(row.addon_id);
-      map.set(row.product_id, list);
+      map.set(String(row.product_id), list);
     }
     return map;
   }, [productAddons]);
@@ -164,9 +297,9 @@ export function AppProvider({ children }) {
   const sizesByProductId = useMemo(() => {
     const map = new Map();
     for (const s of productSizes || []) {
-      const list = map.get(s.product_id) || [];
+      const list = map.get(String(s.product_id)) || [];
       list.push(s);
-      map.set(s.product_id, list);
+      map.set(String(s.product_id), list);
     }
     for (const list of map.values()) {
       list.sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || String(a.name).localeCompare(String(b.name)));
@@ -177,20 +310,29 @@ export function AppProvider({ children }) {
   const sizeIngredientsBySizeId = useMemo(() => {
     const map = new Map();
     for (const row of productSizeIngredients || []) {
-      const list = map.get(row.product_size_id) || [];
+      const list = map.get(String(row.product_size_id)) || [];
       list.push(row);
-      map.set(row.product_size_id, list);
+      map.set(String(row.product_size_id), list);
     }
     return map;
   }, [productSizeIngredients]);
 
   const addNotification = (message, type = 'info') => {
-    const id = Date.now();
-    setNotifications(prev => [...prev, { id, message, type, read: false, created_at: new Date().toISOString() }]);
+    const id = Date.now() + Math.floor(Math.random() * 1000);
+    setNotifications(prev => {
+      const next = [...prev, { id, message, type, read: false, toast_dismissed: false, created_at: new Date().toISOString() }];
+      const max = 200;
+      if (next.length <= max) return next;
+      return next.slice(next.length - max);
+    });
     const ttl = type === 'warning' || type === 'error' ? 15000 : 6000;
     setTimeout(() => {
-      setNotifications(prev => prev.filter(n => n.id !== id));
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, toast_dismissed: true } : n));
     }, ttl);
+  };
+
+  const dismissNotificationToast = (id) => {
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, toast_dismissed: true } : n));
   };
 
   const markNotificationRead = (id) => {
@@ -215,11 +357,111 @@ export function AppProvider({ children }) {
     } catch {}
   };
 
+  const persistCategories = (next) => {
+    try {
+      localStorage.setItem('pos_categories', JSON.stringify(next));
+    } catch {}
+  };
+
+  const persistProducts = (next) => {
+    try {
+      localStorage.setItem('pos_products', JSON.stringify(next));
+    } catch {}
+  };
+
+  const persistProductSizes = (next) => {
+    try {
+      localStorage.setItem('pos_product_sizes', JSON.stringify(next));
+    } catch {}
+  };
+
+  const persistProductSizeIngredients = (next) => {
+    try {
+      localStorage.setItem('pos_product_size_ingredients', JSON.stringify(next));
+    } catch {}
+  };
+
+  const persistProductIngredients = (next) => {
+    try {
+      localStorage.setItem('pos_product_ingredients', JSON.stringify(next));
+    } catch {}
+  };
+
+  const persistProductAddons = (next) => {
+    try {
+      localStorage.setItem('pos_product_addons', JSON.stringify(next));
+    } catch {}
+  };
+
+  const persistAddonIngredients = (next) => {
+    try {
+      localStorage.setItem('pos_addon_ingredients', JSON.stringify(next));
+    } catch {}
+  };
+
+  const persistSales = (next) => {
+    try {
+      localStorage.setItem('pos_sales', JSON.stringify(next));
+    } catch {}
+  };
+
   const persistIngredients = (next) => {
     try {
       localStorage.setItem('pos_ingredients', JSON.stringify(next));
     } catch {}
   };
+
+  useEffect(() => {
+    const derived = (ingredients || []).filter(i => isMaterialUnit(i?.unit));
+    setMaterials(derived);
+    persistMaterials(derived);
+  }, [ingredients]);
+
+  useEffect(() => {
+    try {
+      const rawMaterials = localStorage.getItem('pos_materials');
+      const parsedMaterials = rawMaterials ? JSON.parse(rawMaterials) : [];
+      const mats = Array.isArray(parsedMaterials) ? parsedMaterials : [];
+      if (mats.length === 0) return;
+
+      setIngredients(prev => {
+        const list = Array.isArray(prev) ? [...prev] : [];
+        const keyOf = (row) => `${String(row?.name || '').trim().toLowerCase()}|${String(row?.unit || '').trim().toLowerCase()}`;
+        const existingKeys = new Set(list.map(keyOf));
+        const used = new Set(list.map(i => String(i?.id)));
+        let nextId = 1;
+        for (const i of list) {
+          const n = Number(i?.id);
+          if (Number.isFinite(n)) nextId = Math.max(nextId, n + 1);
+        }
+
+        let changed = false;
+        for (const m of mats) {
+          const name = String(m?.name || '').trim();
+          if (!name) continue;
+          const unit = String(m?.unit || 'pcs');
+          const key = `${name.toLowerCase()}|${String(unit || '').trim().toLowerCase()}`;
+          if (existingKeys.has(key)) continue;
+          while (used.has(String(nextId))) nextId += 1;
+          used.add(String(nextId));
+          existingKeys.add(key);
+          list.push({
+            ...m,
+            id: nextId,
+            name,
+            unit,
+            quantity: Number(m?.quantity || 0),
+            min_stock: Number(m?.min_stock || 0)
+          });
+          nextId += 1;
+          changed = true;
+        }
+
+        if (changed) persistIngredients(list);
+        return changed ? list : prev;
+      });
+    } catch {}
+  }, []);
 
   const persistIngredientCategories = (next) => {
     try {
@@ -264,122 +506,94 @@ export function AppProvider({ children }) {
     ]);
   };
 
-  const fetchStoreSettings = async () => {
-    if (!isSupabaseConfigured) return storeSettings;
+  const LOGIN_THROTTLE_KEY = 'pos_login_throttle';
+  const LOGIN_MAX_ATTEMPTS = 3;
+  const LOGIN_LOCK_MS = 3 * 60 * 1000;
+
+  const readLoginThrottle = () => {
     try {
-      const selectWithOverrides = 'open_time,close_time,days_open,day_overrides,updated_at';
-      const selectNoOverrides = 'open_time,close_time,days_open,updated_at';
-
-      let data = null;
-      let error = null;
-
-      const preferred = await withTimeout(
-        supabase.from('store_settings').select(selectWithOverrides).eq('id', 1).limit(1),
-        5000
-      );
-      data = preferred.data;
-      error = preferred.error;
-
-      if (error && String(error.message || '').toLowerCase().includes('day_overrides')) {
-        const retry = await withTimeout(
-          supabase.from('store_settings').select(selectNoOverrides).eq('id', 1).limit(1),
-          5000
-        );
-        data = retry.data;
-        error = retry.error;
-      }
-
-      if (error || !data?.[0]) {
-        const fallback = await withTimeout(
-          supabase
-            .from('store_settings')
-            .select(selectWithOverrides)
-            .order('updated_at', { ascending: false })
-            .limit(1),
-          5000
-        );
-        data = fallback.data;
-        error = fallback.error;
-
-        if (error && String(error.message || '').toLowerCase().includes('day_overrides')) {
-          const retry = await withTimeout(
-            supabase
-              .from('store_settings')
-              .select(selectNoOverrides)
-              .order('updated_at', { ascending: false })
-              .limit(1),
-            5000
-          );
-          data = retry.data;
-          error = retry.error;
-        }
-      }
-
-      if (error || !data?.[0]) return storeSettings;
-
-      const row = data[0];
-      const next = {
-        open_time: row.open_time ? String(row.open_time) : storeSettings.open_time,
-        close_time: row.close_time ? String(row.close_time) : storeSettings.close_time,
-        days_open: Array.isArray(row.days_open)
-          ? row.days_open.map(n => Number(n)).filter(n => Number.isFinite(n))
-          : storeSettings.days_open,
-        day_overrides:
-          row.day_overrides && typeof row.day_overrides === 'object' ? row.day_overrides : storeSettings.day_overrides || {}
-      };
-      setStoreSettings(next);
-      persistStoreSettings(next);
-      return next;
+      const raw = localStorage.getItem(LOGIN_THROTTLE_KEY);
+      const parsed = raw ? JSON.parse(raw) : {};
+      return parsed && typeof parsed === 'object' ? parsed : {};
     } catch {
-      return storeSettings;
+      return {};
     }
+  };
+
+  const writeLoginThrottle = (next) => {
+    try {
+      localStorage.setItem(LOGIN_THROTTLE_KEY, JSON.stringify(next || {}));
+    } catch {}
+  };
+
+  const getLoginThrottleState = (accountKey) => {
+    const key = String(accountKey || '').trim().toUpperCase();
+    if (!key) return { attempts: 0, lockUntil: 0 };
+    const store = readLoginThrottle();
+    const row = store[key] || {};
+    const attempts = Math.max(0, Math.floor(Number(row.attempts || 0)));
+    const lockUntil = Math.max(0, Number(row.lockUntil || 0));
+    if (lockUntil && Date.now() >= lockUntil) {
+      delete store[key];
+      writeLoginThrottle(store);
+      return { attempts: 0, lockUntil: 0 };
+    }
+    return { attempts, lockUntil };
+  };
+
+  const setLoginThrottleState = (accountKey, nextState) => {
+    const key = String(accountKey || '').trim().toUpperCase();
+    if (!key) return;
+    const store = readLoginThrottle();
+    store[key] = {
+      attempts: Math.max(0, Math.floor(Number(nextState?.attempts || 0))),
+      lockUntil: Math.max(0, Number(nextState?.lockUntil || 0))
+    };
+    writeLoginThrottle(store);
+  };
+
+  const clearLoginThrottleState = (accountKey) => {
+    const key = String(accountKey || '').trim().toUpperCase();
+    if (!key) return;
+    const store = readLoginThrottle();
+    if (store[key]) {
+      delete store[key];
+      writeLoginThrottle(store);
+    }
+  };
+
+  const formatLockRemaining = (lockUntil) => {
+    const ms = Math.max(0, Number(lockUntil || 0) - Date.now());
+    const totalSeconds = Math.ceil(ms / 1000);
+    const m = Math.floor(totalSeconds / 60);
+    const s = totalSeconds % 60;
+    return `${m}m ${String(s).padStart(2, '0')}s`;
+  };
+
+  const fetchStoreSettings = async () => {
+    return storeSettings;
   };
 
   const updateStoreSettings = async (updates) => {
     const next = {
+      ...storeSettings,
+      ...(updates || {}),
       open_time: updates?.open_time ? String(updates.open_time) : storeSettings.open_time,
       close_time: updates?.close_time ? String(updates.close_time) : storeSettings.close_time,
       days_open: Array.isArray(updates?.days_open)
         ? updates.days_open.map(n => Number(n)).filter(n => Number.isFinite(n))
         : storeSettings.days_open,
       day_overrides:
-        updates?.day_overrides && typeof updates.day_overrides === 'object' ? updates.day_overrides : storeSettings.day_overrides || {}
+        updates?.day_overrides && typeof updates.day_overrides === 'object' ? updates.day_overrides : storeSettings.day_overrides || {},
+      is_open: updates?.is_open === false ? false : (updates?.is_open === true ? true : storeSettings?.is_open !== false),
+      opened_at: updates?.opened_at ? String(updates.opened_at) : storeSettings.opened_at ?? null,
+      closed_at: updates?.closed_at ? String(updates.closed_at) : storeSettings.closed_at ?? null
     };
     setStoreSettings(next);
     persistStoreSettings(next);
-
-    if (!isSupabaseConfigured) {
-      addNotification('Store hours updated.', 'success');
-      await logActivity({ action: 'Updated store operational hours', area: 'settings', entityType: 'store_settings', entityId: 'default' });
-      return { ok: true };
-    }
-
-    try {
-      const updated_at = new Date().toISOString();
-      const basePayload = { ...next, updated_at };
-      const preferredPayload = { id: 1, ...basePayload };
-
-      const { error: upsertErr } = await withTimeout(
-        supabase.from('store_settings').upsert([preferredPayload], { onConflict: 'id' }),
-        5000
-      );
-
-      if (upsertErr) {
-        const { error: insErr } = await withTimeout(
-          supabase.from('store_settings').insert([basePayload]),
-          5000
-        );
-        if (insErr) throw insErr;
-      }
-
-      addNotification('Store hours updated.', 'success');
-      await logActivity({ action: 'Updated store operational hours', area: 'settings', entityType: 'store_settings', entityId: 'default' });
-      return { ok: true };
-    } catch {
-      addNotification('Store hours saved locally (database not available).', 'warning');
-      await logActivity({ action: 'Updated store operational hours', area: 'settings', entityType: 'store_settings', entityId: 'default' });
-      return { ok: true };
-    }
+    addNotification('Settings updated.', 'success');
+    await logActivity({ action: 'Updated store settings', area: 'settings', entityType: 'store_settings', entityId: 'default' });
+    return { ok: true };
   };
 
   const addIngredientCategory = async (name) => {
@@ -456,6 +670,146 @@ export function AppProvider({ children }) {
         return next;
       });
     }
+  };
+
+  const renameCategoryInList = (list, fromName, toName) => {
+    const from = String(fromName || '').trim();
+    const to = String(toName || '').trim();
+    if (!from || !to) return Array.isArray(list) ? list : [];
+    const next = (Array.isArray(list) ? list : []).map(x => String(x)).filter(Boolean);
+    const set = new Set(next);
+    set.delete(from);
+    set.add(to);
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  };
+
+  const renameIngredientCategory = async ({ from, to }) => {
+    const fromName = String(from || '').trim();
+    const toName = String(to || '').trim();
+    if (!fromName || !toName) return { ok: false };
+
+    setIngredientCategories(prev => {
+      const next = renameCategoryInList(prev, fromName, toName);
+      persistIngredientCategories(next);
+      return next;
+    });
+
+    setIngredients(prev => {
+      const next = (prev || []).map(i => (String(i?.category || '') === fromName ? { ...i, category: toName, _localUpdatedAt: Date.now() } : i));
+      persistIngredients(next);
+      return next;
+    });
+
+    addNotification('Category updated.', 'success');
+    await logActivity({ action: `Renamed ingredient category: ${fromName} -> ${toName}`, area: 'inventory', entityType: 'ingredient_category', entityId: toName });
+    return { ok: true };
+  };
+
+  const renameMaterialCategory = async ({ from, to }) => {
+    const fromName = String(from || '').trim();
+    const toName = String(to || '').trim();
+    if (!fromName || !toName) return { ok: false };
+
+    setMaterialCategories(prev => {
+      const next = renameCategoryInList(prev, fromName, toName);
+      persistMaterialCategories(next);
+      return next;
+    });
+
+    setIngredients(prev => {
+      const next = (prev || []).map(i => (isMaterialUnit(i?.unit) && String(i?.category || '') === fromName ? { ...i, category: toName, _localUpdatedAt: Date.now() } : i));
+      persistIngredients(next);
+      return next;
+    });
+
+    addNotification('Category updated.', 'success');
+    await logActivity({ action: `Renamed material category: ${fromName} -> ${toName}`, area: 'inventory', entityType: 'material_category', entityId: toName });
+    return { ok: true };
+  };
+
+  const renameAddonCategory = async ({ from, to }) => {
+    const fromName = String(from || '').trim();
+    const toName = String(to || '').trim();
+    if (!fromName || !toName) return { ok: false };
+
+    setAddonCategories(prev => {
+      const next = renameCategoryInList(prev, fromName, toName);
+      persistAddonCategories(next);
+      return next;
+    });
+
+    setAddons(prev => {
+      const next = (prev || []).map(a => (String(a?.category || '') === fromName ? { ...a, category: toName, _localUpdatedAt: Date.now() } : a));
+      persistAddons(next);
+      return next;
+    });
+
+    addNotification('Category updated.', 'success');
+    await logActivity({ action: `Renamed add-on category: ${fromName} -> ${toName}`, area: 'inventory', entityType: 'addon_category', entityId: toName });
+    return { ok: true };
+  };
+
+  const deleteIngredientCategory = async ({ name }) => {
+    const fromName = String(name || '').trim();
+    if (!fromName) return { ok: false };
+
+    setIngredientCategories(prev => {
+      const next = (prev || []).map(x => String(x)).filter(Boolean).filter(x => x !== fromName);
+      persistIngredientCategories(next);
+      return next;
+    });
+
+    setIngredients(prev => {
+      const next = (prev || []).map(i => (String(i?.category || '') === fromName ? { ...i, category: null, _localUpdatedAt: Date.now() } : i));
+      persistIngredients(next);
+      return next;
+    });
+
+    addNotification('Category deleted.', 'success');
+    await logActivity({ action: `Deleted ingredient category: ${fromName}`, area: 'inventory', entityType: 'ingredient_category', entityId: fromName });
+    return { ok: true };
+  };
+
+  const deleteMaterialCategory = async ({ name }) => {
+    const fromName = String(name || '').trim();
+    if (!fromName) return { ok: false };
+
+    setMaterialCategories(prev => {
+      const next = (prev || []).map(x => String(x)).filter(Boolean).filter(x => x !== fromName);
+      persistMaterialCategories(next);
+      return next;
+    });
+
+    setIngredients(prev => {
+      const next = (prev || []).map(i => (isMaterialUnit(i?.unit) && String(i?.category || '') === fromName ? { ...i, category: null, _localUpdatedAt: Date.now() } : i));
+      persistIngredients(next);
+      return next;
+    });
+
+    addNotification('Category deleted.', 'success');
+    await logActivity({ action: `Deleted material category: ${fromName}`, area: 'inventory', entityType: 'material_category', entityId: fromName });
+    return { ok: true };
+  };
+
+  const deleteAddonCategory = async ({ name }) => {
+    const fromName = String(name || '').trim();
+    if (!fromName) return { ok: false };
+
+    setAddonCategories(prev => {
+      const next = (prev || []).map(x => String(x)).filter(Boolean).filter(x => x !== fromName);
+      persistAddonCategories(next);
+      return next;
+    });
+
+    setAddons(prev => {
+      const next = (prev || []).map(a => (String(a?.category || '') === fromName ? { ...a, category: null, _localUpdatedAt: Date.now() } : a));
+      persistAddons(next);
+      return next;
+    });
+
+    addNotification('Category deleted.', 'success');
+    await logActivity({ action: `Deleted add-on category: ${fromName}`, area: 'inventory', entityType: 'addon_category', entityId: fromName });
+    return { ok: true };
   };
 
   const fetchActivityLogs = async () => {
@@ -548,31 +902,144 @@ export function AppProvider({ children }) {
     }
   };
 
+  const mergeById = (remoteList, localList) => {
+    const map = new Map();
+    for (const item of remoteList || []) {
+      if (!item) continue;
+      map.set(String(item.id), item);
+    }
+    for (const item of localList || []) {
+      if (!item) continue;
+      const key = String(item.id);
+      if (!map.has(key)) map.set(key, item);
+    }
+    return Array.from(map.values());
+  };
+
+  const mergeByIdPreferLocal = (remoteList, localList) => {
+    const map = new Map();
+    for (const item of remoteList || []) {
+      if (!item) continue;
+      map.set(String(item.id), item);
+    }
+    for (const item of localList || []) {
+      if (!item) continue;
+      const key = String(item.id);
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, item);
+        continue;
+      }
+      const localTs = Number(item?._localUpdatedAt || 0);
+      const remoteTs = Number(existing?._localUpdatedAt || 0);
+      if (localTs >= remoteTs) map.set(key, item);
+    }
+    return Array.from(map.values());
+  };
+
+  const mergeByKey = (remoteList, localList, keyFn) => {
+    const map = new Map();
+    for (const item of remoteList || []) {
+      if (!item) continue;
+      map.set(String(keyFn(item)), item);
+    }
+    for (const item of localList || []) {
+      if (!item) continue;
+      const key = String(keyFn(item));
+      if (!map.has(key)) map.set(key, item);
+    }
+    return Array.from(map.values());
+  };
+
+  const sameId = (a, b) => String(a) === String(b);
+
+  const isMaterialUnit = (unit) => {
+    const u = String(unit || '').trim().toLowerCase();
+    return u === 'pcs' || u === 'pc' || u === 'piece' || u === 'pieces';
+  };
+
+  const normalizeDbTimestamp = (raw) => {
+    if (!raw) return null;
+    const s = String(raw).trim();
+    if (!s) return null;
+    const hasTz = /z$/i.test(s) || /[+\-]\d{2}:?\d{2}$/.test(s);
+    const isoCandidate = hasTz ? s : (s.includes('T') ? `${s}Z` : s);
+    const d = new Date(isoCandidate);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toISOString();
+  };
+
   const fetchCategories = async () => {
-    if (!isSupabaseConfigured) return [];
-    const { data, error } = await supabase.from('categories').select('*').order('name', { ascending: true });
-    if (error) return [];
-    setCategories(data || []);
-    return data || [];
+    if (!isSupabaseConfigured) return categories || [];
+    try {
+      const { data, error } = await withTimeout(
+        supabase.from('categories').select('*').order('name', { ascending: true }),
+        5000
+      );
+      if (error) return categories || [];
+      const remote = (data || []).map(r => ({ ...r, _localUpdatedAt: 0 }));
+      const merged = mergeByIdPreferLocal(remote, categories || [])
+        .slice()
+        .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+      setCategories(merged);
+      persistCategories(merged);
+      return merged;
+    } catch {
+      return categories || [];
+    }
   };
 
   const fetchProducts = async () => {
-    if (!isSupabaseConfigured) return [];
-    const { data, error } = await supabase
-      .from('products')
-      .select('id,name,category_id,price,stock,barcode,created_at,categories(name)')
-      .order('created_at', { ascending: false });
-    if (error) return [];
-    const mapped = (data || []).map(row => ({
-      ...row,
-      categoryName: row.categories?.name ?? null
-    }));
-    setProducts(mapped);
-    return mapped;
+    if (!isSupabaseConfigured) return products || [];
+    try {
+      const fullSelect = 'id,name,category_id,price,stock,barcode,created_at,categories(name)';
+      const minimalSelect = 'id,name,category_id,created_at,categories(name)';
+
+      let { data, error } = await withTimeout(
+        supabase.from('products').select(fullSelect).order('created_at', { ascending: false }),
+        5000
+      );
+
+      const msg = String(error?.message || '').toLowerCase();
+      if (error && (msg.includes('price') || msg.includes('stock') || msg.includes('barcode') || msg.includes('column'))) {
+        const retry = await withTimeout(
+          supabase.from('products').select(minimalSelect).order('created_at', { ascending: false }),
+          5000
+        );
+        data = retry.data;
+        error = retry.error;
+      }
+
+      if (error) return products || [];
+
+      const mapped = (data || []).map(row => ({
+        id: row.id,
+        name: row.name,
+        category_id: row.category_id ?? null,
+        price: row.price == null ? 0 : Number(row.price || 0),
+        stock: row.stock ?? null,
+        barcode: row.barcode ?? null,
+        created_at: row.created_at ?? null,
+        categoryName: row.categories?.name ?? null,
+        _localUpdatedAt: 0
+      }));
+      const merged = mergeByIdPreferLocal(mapped, products || [])
+        .slice()
+        .sort((a, b) => {
+          const ad = a?.created_at ? new Date(a.created_at).getTime() : 0;
+          const bd = b?.created_at ? new Date(b.created_at).getTime() : 0;
+          return bd - ad || String(a?.name || '').localeCompare(String(b?.name || ''));
+        });
+      setProducts(merged);
+      persistProducts(merged);
+      return merged;
+    } catch {
+      return products || [];
+    }
   };
 
   const fetchIngredients = async () => {
-    if (!isSupabaseConfigured) return [];
+    if (!isSupabaseConfigured) return ingredients || [];
     try {
       let { data, error } = await withTimeout(
         supabase
@@ -598,55 +1065,51 @@ export function AppProvider({ children }) {
         ...r,
         category: r.category ?? null,
         quantity: Number(r.quantity),
-        min_stock: Number(r.min_stock)
+        min_stock: Number(r.min_stock),
+        _localUpdatedAt: 0
       }));
-      setIngredients(mapped);
-      persistIngredients(mapped);
-      notifyLowStockIngredients(mapped);
-      return mapped;
+      const merged = mergeByIdPreferLocal(mapped, ingredients || [])
+        .slice()
+        .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+      setIngredients(merged);
+      persistIngredients(merged);
+      notifyLowStockIngredients(merged);
+      return merged;
     } catch {
       return ingredients || [];
     }
   };
 
   const fetchMaterials = async () => {
-    if (!isSupabaseConfigured) return [];
+    if (!isSupabaseConfigured) return (ingredients || []).filter(i => isMaterialUnit(i?.unit));
     try {
-      let { data, error } = await withTimeout(
+      const units = ['pcs', 'pc', 'piece', 'pieces'];
+      const { data, error } = await withTimeout(
         supabase
-          .from('materials')
-          .select('id,name,category,unit,quantity,min_stock,created_at')
+          .from('ingredients')
+          .select('id,name,unit,quantity,min_stock,created_at')
+          .in('unit', units)
           .order('name', { ascending: true }),
         5000
       );
-      if (error && String(error.message || '').toLowerCase().includes('category')) {
-        const retry = await withTimeout(
-          supabase
-            .from('materials')
-            .select('id,name,unit,quantity,min_stock,created_at')
-            .order('name', { ascending: true }),
-          5000
-        );
-        data = retry.data;
-        error = retry.error;
-      }
-      if (error) return materials || [];
+      if (error) return (ingredients || []).filter(i => isMaterialUnit(i?.unit));
       const mapped = (data || []).map(r => ({
         ...r,
         category: r.category ?? null,
         quantity: Number(r.quantity),
-        min_stock: Number(r.min_stock)
+        min_stock: Number(r.min_stock),
+        _localUpdatedAt: 0
       }));
       setMaterials(mapped);
       persistMaterials(mapped);
       return mapped;
     } catch {
-      return materials || [];
+      return (ingredients || []).filter(i => isMaterialUnit(i?.unit));
     }
   };
 
   const fetchAddons = async () => {
-    if (!isSupabaseConfigured) return [];
+    if (!isSupabaseConfigured) return addons || [];
     try {
       let { data, error } = await withTimeout(
         supabase
@@ -671,174 +1134,425 @@ export function AppProvider({ children }) {
         ...r,
         category: r.category ?? null,
         price_per_unit: Number(r.price_per_unit),
-        variable_quantity: Boolean(r.variable_quantity)
+        variable_quantity: Boolean(r.variable_quantity),
+        _localUpdatedAt: 0
       }));
-      setAddons(mapped);
-      persistAddons(mapped);
-      return mapped;
+      const merged = mergeByIdPreferLocal(mapped, addons || [])
+        .slice()
+        .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+      setAddons(merged);
+      persistAddons(merged);
+      return merged;
     } catch {
       return addons || [];
     }
   };
 
   const fetchProductSizes = async () => {
-    if (!isSupabaseConfigured) return [];
-    const { data, error } = await supabase
-      .from('product_sizes')
-      .select('id,product_id,name,price,sort_order,created_at')
-      .order('product_id', { ascending: true })
-      .order('sort_order', { ascending: true })
-      .order('name', { ascending: true });
-    if (error) return [];
-    const mapped = (data || []).map(r => ({
-      ...r,
-      price: Number(r.price || 0),
-      sort_order: r.sort_order ?? 0
-    }));
-    setProductSizes(mapped);
-    return mapped;
+    if (!isSupabaseConfigured) return productSizes || [];
+    try {
+      const { data, error } = await withTimeout(
+        supabase
+          .from('product_sizes')
+          .select('id,product_id,name,price,sort_order,created_at')
+          .order('product_id', { ascending: true })
+          .order('sort_order', { ascending: true })
+          .order('name', { ascending: true }),
+        5000
+      );
+      if (error) return productSizes || [];
+      const mapped = (data || []).map(r => ({
+        ...r,
+        price: Number(r.price || 0),
+        sort_order: r.sort_order ?? 0
+      }));
+      const merged = mergeById(mapped, productSizes || []);
+      setProductSizes(merged);
+      persistProductSizes(merged);
+      return merged;
+    } catch {
+      return productSizes || [];
+    }
   };
 
   const fetchProductSizeIngredients = async () => {
-    if (!isSupabaseConfigured) return [];
-    const { data, error } = await supabase
-      .from('product_size_ingredients')
-      .select('product_size_id,ingredient_id,quantity');
-    if (error) return [];
-    const mapped = (data || []).map(r => ({
-      product_size_id: r.product_size_id,
-      ingredient_id: r.ingredient_id,
-      quantity: Number(r.quantity)
-    }));
-    setProductSizeIngredients(mapped);
-    return mapped;
+    if (!isSupabaseConfigured) return productSizeIngredients || [];
+    try {
+      const { data, error } = await withTimeout(
+        supabase.from('product_size_ingredients').select('product_size_id,ingredient_id,quantity'),
+        5000
+      );
+      if (error) return productSizeIngredients || [];
+      const mapped = (data || []).map(r => ({
+        product_size_id: r.product_size_id,
+        ingredient_id: r.ingredient_id,
+        quantity: Number(r.quantity)
+      }));
+      const merged = mergeByKey(mapped, productSizeIngredients || [], r => `${r.product_size_id}|${r.ingredient_id}`);
+      setProductSizeIngredients(merged);
+      persistProductSizeIngredients(merged);
+      return merged;
+    } catch {
+      return productSizeIngredients || [];
+    }
   };
 
   const fetchProductIngredients = async () => {
-    if (!isSupabaseConfigured) return [];
-    const { data, error } = await supabase.from('product_ingredients').select('product_id,ingredient_id,quantity');
-    if (error) return [];
-    const mapped = (data || []).map(r => ({
-      product_id: r.product_id,
-      ingredient_id: r.ingredient_id,
-      quantity: Number(r.quantity)
-    }));
-    setProductIngredients(mapped);
-    return mapped;
+    if (!isSupabaseConfigured) return productIngredients || [];
+    try {
+      const { data, error } = await withTimeout(
+        supabase.from('product_ingredients').select('product_id,ingredient_id,quantity'),
+        5000
+      );
+      if (error) return productIngredients || [];
+      const mapped = (data || []).map(r => ({
+        product_id: r.product_id,
+        ingredient_id: r.ingredient_id,
+        quantity: Number(r.quantity)
+      }));
+      const merged = mergeByKey(mapped, productIngredients || [], r => `${r.product_id}|${r.ingredient_id}`);
+      setProductIngredients(merged);
+      persistProductIngredients(merged);
+      return merged;
+    } catch {
+      return productIngredients || [];
+    }
   };
 
   const fetchProductAddons = async () => {
-    if (!isSupabaseConfigured) return [];
-    const { data, error } = await supabase.from('product_addons').select('product_id,addon_id');
-    if (error) return [];
-    const mapped = (data || []).map(r => ({ product_id: r.product_id, addon_id: r.addon_id }));
-    setProductAddons(mapped);
-    return mapped;
+    if (!isSupabaseConfigured) return productAddons || [];
+    try {
+      const { data, error } = await withTimeout(
+        supabase.from('product_addons').select('product_id,addon_id'),
+        5000
+      );
+      if (error) return productAddons || [];
+      const mapped = (data || []).map(r => ({ product_id: r.product_id, addon_id: r.addon_id }));
+      const merged = mergeByKey(mapped, productAddons || [], r => `${r.product_id}|${r.addon_id}`);
+      setProductAddons(merged);
+      persistProductAddons(merged);
+      return merged;
+    } catch {
+      return productAddons || [];
+    }
   };
 
   const fetchAddonIngredients = async () => {
-    if (!isSupabaseConfigured) return [];
-    const { data, error } = await supabase.from('addon_ingredients').select('addon_id,ingredient_id,quantity');
-    if (error) return [];
-    const mapped = (data || []).map(r => ({
-      addon_id: r.addon_id,
-      ingredient_id: r.ingredient_id,
-      quantity: Number(r.quantity)
-    }));
-    setAddonIngredients(mapped);
-    return mapped;
+    if (!isSupabaseConfigured) return addonIngredients || [];
+    try {
+      const { data, error } = await withTimeout(
+        supabase.from('addon_ingredients').select('addon_id,ingredient_id,quantity'),
+        5000
+      );
+      if (error) return addonIngredients || [];
+      const mapped = (data || []).map(r => ({
+        addon_id: r.addon_id,
+        ingredient_id: r.ingredient_id,
+        quantity: Number(r.quantity)
+      }));
+      const merged = mergeByKey(mapped, addonIngredients || [], r => `${r.addon_id}|${r.ingredient_id}`);
+      setAddonIngredients(merged);
+      persistAddonIngredients(merged);
+      return merged;
+    } catch {
+      return addonIngredients || [];
+    }
   };
 
   const fetchSales = async () => {
     if (!isSupabaseConfigured) return [];
-    let { data, error } = await supabase
-      .from('sales')
-      .select('id,account_id,total_amount,payment_method,reference_number,cash_received,change_amount,created_at,accounts(name,account_id,email),transactions(id,product_id,quantity,price,subtotal,product_size_id,size_name,products(name,category_id),transaction_addons(quantity,unit_price,subtotal,addons(name)))')
-      .order('created_at', { ascending: false })
-      .limit(500);
-    if (error && (String(error.message || '').toLowerCase().includes('cash_received') || String(error.message || '').toLowerCase().includes('change_amount'))) {
-      const retry = await supabase
-        .from('sales')
-        .select('id,account_id,total_amount,payment_method,reference_number,created_at,accounts(name,account_id,email),transactions(id,product_id,quantity,price,subtotal,product_size_id,size_name,products(name,category_id),transaction_addons(quantity,unit_price,subtotal,addons(name)))')
-        .order('created_at', { ascending: false })
-        .limit(500);
-      data = retry.data;
-      error = retry.error;
-    }
+    const mapAndPersist = (rows) => {
+      setSales(rows);
+      persistSales(rows);
+      return rows;
+    };
 
-    if (error && (String(error.message || '').toLowerCase().includes('product_size_id') || String(error.message || '').toLowerCase().includes('size_name'))) {
-      const retry = await supabase
-        .from('sales')
-        .select('id,account_id,total_amount,payment_method,reference_number,cash_received,change_amount,created_at,accounts(name,account_id,email),transactions(id,product_id,quantity,price,subtotal,products(name,category_id),transaction_addons(quantity,unit_price,subtotal,addons(name)))')
-        .order('created_at', { ascending: false })
-        .limit(500);
-      data = retry.data;
-      error = retry.error;
+    try {
+      const baseSelect =
+        'id,account_id,total_amount,payment_method,reference_number,cash_received,change_amount,created_at,' +
+        'accounts(name,account_id,email),' +
+        'transactions(id,sale_id,product_id,quantity,price,subtotal,product_size_id,size_name,' +
+        'products(name,category_id),' +
+        'transaction_addons(addon_id,quantity,unit_price,subtotal,addons(name)))';
+
+      const cashFallbackSelect =
+        'id,account_id,total_amount,payment_method,reference_number,created_at,' +
+        'accounts(name,account_id,email),' +
+        'transactions(id,sale_id,product_id,quantity,price,subtotal,product_size_id,size_name,' +
+        'products(name,category_id),' +
+        'transaction_addons(addon_id,quantity,unit_price,subtotal,addons(name)))';
+
+      const sizeFallbackSelect =
+        'id,account_id,total_amount,payment_method,reference_number,cash_received,change_amount,created_at,' +
+        'accounts(name,account_id,email),' +
+        'transactions(id,sale_id,product_id,quantity,price,subtotal,' +
+        'products(name,category_id),' +
+        'transaction_addons(addon_id,quantity,unit_price,subtotal,addons(name)))';
+
+      const accountFallbackSelect =
+        'id,account_id,total_amount,payment_method,reference_number,cash_received,change_amount,created_at,' +
+        'accounts(name,email),' +
+        'transactions(id,sale_id,product_id,quantity,price,subtotal,product_size_id,size_name,' +
+        'products(name,category_id),' +
+        'transaction_addons(addon_id,quantity,unit_price,subtotal,addons(name)))';
+
+      let data = null;
+      let error = null;
+
+      const first = await withTimeout(
+        supabase.from('sales').select(baseSelect).order('created_at', { ascending: false }).limit(500),
+        5000
+      );
+      data = first.data;
+      error = first.error;
+
+      const msg = String(error?.message || '').toLowerCase();
+      if (error && (msg.includes('cash_received') || msg.includes('change_amount'))) {
+        const retry = await withTimeout(
+          supabase.from('sales').select(cashFallbackSelect).order('created_at', { ascending: false }).limit(500),
+          5000
+        );
+        data = retry.data;
+        error = retry.error;
+      }
+
+      const msg2 = String(error?.message || '').toLowerCase();
+      if (error && (msg2.includes('product_size_id') || msg2.includes('size_name'))) {
+        const retry = await withTimeout(
+          supabase.from('sales').select(sizeFallbackSelect).order('created_at', { ascending: false }).limit(500),
+          5000
+        );
+        data = retry.data;
+        error = retry.error;
+      }
+
+      const msg3 = String(error?.message || '').toLowerCase();
+      if (error && msg3.includes('account_id') && msg3.includes('accounts')) {
+        const retry = await withTimeout(
+          supabase.from('sales').select(accountFallbackSelect).order('created_at', { ascending: false }).limit(500),
+          5000
+        );
+        data = retry.data;
+        error = retry.error;
+      }
+
+      if (!error && Array.isArray(data)) {
+        const mapped = (data || []).map(s => ({
+          id: s.id,
+          created_at: normalizeDbTimestamp(s.created_at) || s.created_at,
+          total_amount: Number(s.total_amount),
+          payment_method: s.payment_method,
+          reference_number: s.reference_number,
+          cash_received: s.cash_received ?? null,
+          change_amount: s.change_amount ?? null,
+          cashier: s.accounts?.name ?? 'Unknown',
+          cashier_account_id: s.accounts?.account_id ?? s.accounts?.email ?? null,
+          items: (s.transactions || []).map(t => ({
+            product_id: t.product_id ?? null,
+            name: t.products?.name ?? 'Unknown',
+            category_id: t.products?.category_id ?? null,
+            quantity: t.quantity,
+            price: Number(t.price),
+            subtotal: Number(t.subtotal),
+            size_name: t.size_name ?? null,
+            addons: (t.transaction_addons || []).map(a => ({
+              addon_id: a.addon_id ?? null,
+              name: a.addons?.name ?? 'Unknown',
+              quantity: Number(a.quantity),
+              unit_price: Number(a.unit_price),
+              subtotal: Number(a.subtotal)
+            }))
+          }))
+        }));
+
+        const unknownProductIds = new Set();
+        const unknownAddonIds = new Set();
+        for (const s of mapped) {
+          for (const it of s.items || []) {
+            if (it.name === 'Unknown' && it.product_id != null) unknownProductIds.add(String(it.product_id));
+            for (const ad of it.addons || []) {
+              if (ad.name === 'Unknown' && ad.addon_id != null) unknownAddonIds.add(String(ad.addon_id));
+            }
+          }
+        }
+
+        if (unknownProductIds.size === 0 && unknownAddonIds.size === 0) {
+          return mapAndPersist(mapped);
+        }
+
+        const prodMap = new Map();
+        if (unknownProductIds.size > 0) {
+          const ids = Array.from(unknownProductIds);
+          const { data: prodData } = await withTimeout(
+            supabase.from('products').select('id,name,category_id').in('id', ids),
+            5000
+          );
+          for (const p of prodData || []) prodMap.set(String(p.id), p);
+        }
+
+        const addonMap = new Map();
+        if (unknownAddonIds.size > 0) {
+          const ids = Array.from(unknownAddonIds);
+          const { data: addonData } = await withTimeout(
+            supabase.from('addons').select('id,name').in('id', ids),
+            5000
+          );
+          for (const a of addonData || []) addonMap.set(String(a.id), a);
+        }
+
+        const fixed = mapped.map(s => ({
+          ...s,
+          items: (s.items || []).map(it => {
+            const prod = it.product_id != null ? prodMap.get(String(it.product_id)) : null;
+            return {
+              ...it,
+              name: it.name === 'Unknown' && prod?.name ? prod.name : it.name,
+              category_id: it.category_id ?? prod?.category_id ?? null,
+              addons: (it.addons || []).map(ad => {
+                const row = ad.addon_id != null ? addonMap.get(String(ad.addon_id)) : null;
+                return { ...ad, name: ad.name === 'Unknown' && row?.name ? row.name : ad.name };
+              })
+            };
+          })
+        }));
+
+        return mapAndPersist(fixed);
+      }
+    } catch {}
+
+    try {
+      const { data: salesRows, error: salesErr } = await withTimeout(
+        supabase
+          .from('sales')
+          .select('id,account_id,total_amount,payment_method,reference_number,cash_received,change_amount,created_at')
+          .order('created_at', { ascending: false })
+          .limit(500),
+        5000
+      );
+      if (salesErr) return [];
+      const saleIds = (salesRows || []).map(r => r.id).filter(Boolean);
+      if (saleIds.length === 0) return mapAndPersist([]);
+
+      const accountIds = Array.from(
+        new Set((salesRows || []).map(r => r.account_id).filter(Boolean).map(x => String(x)))
+      );
+      const accountsMap = new Map();
+      if (accountIds.length > 0) {
+        const { data: acctData } = await withTimeout(
+          supabase.from('accounts').select('id,name,account_id,email').in('id', accountIds),
+          5000
+        );
+        for (const a of acctData || []) accountsMap.set(String(a.id), a);
+      }
+
+      const { data: trxRows, error: trxErr } = await withTimeout(
+        supabase
+          .from('transactions')
+          .select('id,sale_id,product_id,quantity,price,subtotal,product_size_id,size_name')
+          .in('sale_id', saleIds),
+        5000
+      );
+      if (trxErr) return [];
+
+      const trxIds = (trxRows || []).map(t => t.id).filter(Boolean);
+      const { data: trxAddonRows } = trxIds.length
+        ? await withTimeout(
+            supabase.from('transaction_addons').select('transaction_id,addon_id,quantity,unit_price,subtotal').in('transaction_id', trxIds),
+            5000
+          )
+        : { data: [] };
+
+      const productIds = Array.from(new Set((trxRows || []).map(t => t.product_id).filter(Boolean).map(x => String(x))));
+      const productsMap = new Map();
+      if (productIds.length > 0) {
+        const { data: prodData } = await withTimeout(
+          supabase.from('products').select('id,name,category_id').in('id', productIds),
+          5000
+        );
+        for (const p of prodData || []) productsMap.set(String(p.id), p);
+      }
+
+      const addonIds = Array.from(new Set((trxAddonRows || []).map(a => a.addon_id).filter(Boolean).map(x => String(x))));
+      const addonsMap = new Map();
+      if (addonIds.length > 0) {
+        const { data: addonData } = await withTimeout(
+          supabase.from('addons').select('id,name').in('id', addonIds),
+          5000
+        );
+        for (const a of addonData || []) addonsMap.set(String(a.id), a);
+      }
+
+      const addonsByTrxId = new Map();
+      for (const a of trxAddonRows || []) {
+        const list = addonsByTrxId.get(String(a.transaction_id)) || [];
+        list.push(a);
+        addonsByTrxId.set(String(a.transaction_id), list);
+      }
+
+      const trxsBySaleId = new Map();
+      for (const t of trxRows || []) {
+        const list = trxsBySaleId.get(String(t.sale_id)) || [];
+        list.push(t);
+        trxsBySaleId.set(String(t.sale_id), list);
+      }
+
+      const mapped = (salesRows || []).map(s => {
+        const acct = s.account_id != null ? accountsMap.get(String(s.account_id)) : null;
+        const txs = trxsBySaleId.get(String(s.id)) || [];
+        return {
+          id: s.id,
+          created_at: normalizeDbTimestamp(s.created_at) || s.created_at,
+          total_amount: Number(s.total_amount),
+          payment_method: s.payment_method,
+          reference_number: s.reference_number,
+          cash_received: s.cash_received ?? null,
+          change_amount: s.change_amount ?? null,
+          cashier: acct?.name ?? 'Unknown',
+          cashier_account_id: acct?.account_id ?? acct?.email ?? null,
+          items: txs.map(t => {
+            const prod = t.product_id != null ? productsMap.get(String(t.product_id)) : null;
+            const ads = addonsByTrxId.get(String(t.id)) || [];
+            return {
+              product_id: t.product_id ?? null,
+              name: prod?.name ?? 'Unknown',
+              category_id: prod?.category_id ?? null,
+              quantity: t.quantity,
+              price: Number(t.price),
+              subtotal: Number(t.subtotal),
+              size_name: t.size_name ?? null,
+              addons: ads.map(a => ({
+                addon_id: a.addon_id ?? null,
+                name: a.addon_id != null ? (addonsMap.get(String(a.addon_id))?.name ?? 'Unknown') : 'Unknown',
+                quantity: Number(a.quantity),
+                unit_price: Number(a.unit_price),
+                subtotal: Number(a.subtotal)
+              }))
+            };
+          })
+        };
+      });
+
+      return mapAndPersist(mapped);
+    } catch {
+      return [];
     }
-    if (error && String(error.message || '').toLowerCase().includes('account_id') && String(error.message || '').toLowerCase().includes('accounts')) {
-      const retry = await supabase
-        .from('sales')
-        .select('id,account_id,total_amount,payment_method,reference_number,cash_received,change_amount,created_at,accounts(name,email),transactions(id,product_id,quantity,price,subtotal,product_size_id,size_name,products(name,category_id),transaction_addons(quantity,unit_price,subtotal,addons(name)))')
-        .order('created_at', { ascending: false })
-        .limit(500);
-      data = retry.data;
-      error = retry.error;
-    }
-    if (error) return [];
-    const mapped = (data || []).map(s => ({
-      id: s.id,
-      created_at: s.created_at,
-      total_amount: Number(s.total_amount),
-      payment_method: s.payment_method,
-      reference_number: s.reference_number,
-      cash_received: s.cash_received ?? null,
-      change_amount: s.change_amount ?? null,
-      cashier: s.accounts?.name ?? 'Unknown',
-      cashier_account_id: s.accounts?.account_id ?? s.accounts?.email ?? null,
-      items: (s.transactions || []).map(t => ({
-        name: t.products?.name ?? 'Unknown',
-        category_id: t.products?.category_id ?? null,
-        quantity: t.quantity,
-        price: Number(t.price),
-        subtotal: Number(t.subtotal),
-        size_name: t.size_name ?? null,
-        addons: (t.transaction_addons || []).map(a => ({
-          name: a.addons?.name ?? 'Unknown',
-          quantity: Number(a.quantity),
-          unit_price: Number(a.unit_price),
-          subtotal: Number(a.subtotal)
-        }))
-      }))
-    }));
-    setSales(mapped);
-    return mapped;
   };
 
   const getBusinessDayStart = () => {
     const now = new Date();
-    const dayOfWeek = now.getDay();
-    let openTimeStr = storeSettings?.open_time || '00:00';
-    if (storeSettings?.day_overrides?.[dayOfWeek]?.open_time) {
-      openTimeStr = storeSettings.day_overrides[dayOfWeek].open_time;
+    if (storeSettings?.is_open === false) {
+      const closed = storeSettings?.closed_at ? new Date(storeSettings.closed_at) : null;
+      if (closed && !Number.isNaN(closed.getTime())) return closed;
+      return now;
     }
-    const [openHour, openMinute] = openTimeStr.split(':').map(Number);
-    const todayOpenTime = new Date(now);
-    todayOpenTime.setHours(openHour || 0, openMinute || 0, 0, 0);
-
-    let businessDayStart = new Date(todayOpenTime);
-    if (now < todayOpenTime) {
-      const yesterday = new Date(now);
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yDayOfWeek = yesterday.getDay();
-      let yOpenTimeStr = storeSettings?.open_time || '00:00';
-      if (storeSettings?.day_overrides?.[yDayOfWeek]?.open_time) {
-        yOpenTimeStr = storeSettings.day_overrides[yDayOfWeek].open_time;
-      }
-      const [yOpenHour, yOpenMinute] = yOpenTimeStr.split(':').map(Number);
-      businessDayStart = new Date(yesterday);
-      businessDayStart.setHours(yOpenHour || 0, yOpenMinute || 0, 0, 0);
+    const opened = storeSettings?.opened_at ? new Date(storeSettings.opened_at) : null;
+    if (opened && !Number.isNaN(opened.getTime())) {
+      const diff = now.getTime() - opened.getTime();
+      if (diff >= 0 && diff <= 1000 * 60 * 60 * 36) return opened;
     }
-    return businessDayStart;
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    return start;
   };
 
   const refreshDailySales = async () => {
@@ -868,20 +1582,53 @@ export function AppProvider({ children }) {
     since.setDate(since.getDate() - Math.max(1, Number(days) || 30));
     const sinceStr = since.toISOString().slice(0, 10);
 
-    const { data, error } = await supabase
-      .from('sales_report')
-      .select('sale_date,total_transactions,total_revenue')
-      .gte('sale_date', sinceStr)
-      .order('sale_date', { ascending: false });
+    try {
+      const { data, error } = await withTimeout(
+        supabase
+          .from('sales_report')
+          .select('sale_date,total_transactions,total_revenue')
+          .gte('sale_date', sinceStr)
+          .order('sale_date', { ascending: false }),
+        5000
+      );
+      if (!error) {
+        const mapped = (data || []).map(r => ({
+          sale_date: r.sale_date,
+          total_transactions: Number(r.total_transactions || 0),
+          total_revenue: Number(r.total_revenue || 0)
+        }));
+        setSalesReport(mapped);
+        return mapped;
+      }
+    } catch {}
 
-    if (error) return [];
-    const mapped = (data || []).map(r => ({
-      sale_date: r.sale_date,
-      total_transactions: Number(r.total_transactions || 0),
-      total_revenue: Number(r.total_revenue || 0)
-    }));
-    setSalesReport(mapped);
-    return mapped;
+    try {
+      const { data, error } = await withTimeout(
+        supabase
+          .from('sales')
+          .select('created_at,total_amount')
+          .gte('created_at', since.toISOString()),
+        5000
+      );
+      if (error) return [];
+
+      const byDay = new Map();
+      for (const row of data || []) {
+        const dateKey = String(row?.created_at || '').slice(0, 10);
+        if (!dateKey) continue;
+        const existing = byDay.get(dateKey) || { sale_date: dateKey, total_transactions: 0, total_revenue: 0 };
+        existing.total_transactions += 1;
+        existing.total_revenue += Number(row?.total_amount || 0);
+        byDay.set(dateKey, existing);
+      }
+
+      const mapped = Array.from(byDay.values())
+        .sort((a, b) => String(b.sale_date).localeCompare(String(a.sale_date)));
+      setSalesReport(mapped);
+      return mapped;
+    } catch {
+      return [];
+    }
   };
 
   const fetchAccounts = async () => {
@@ -911,9 +1658,10 @@ export function AppProvider({ children }) {
     return `${prefix}${String(Date.now()).slice(-6)}`;
   };
 
-  const createAccount = async ({ name, password, role }) => {
+  const createAccount = async ({ name, password, role, account_id }) => {
     const normalizedRole = role === 'admin' ? 'admin' : 'cashier';
-    const accountId = await generateAccountId(normalizedRole);
+    const desired = (account_id || '').toString().trim().toUpperCase();
+    const accountId = desired ? desired : await generateAccountId(normalizedRole);
     const payload = {
       name: (name || '').toString().trim(),
       password: (password || '').toString(),
@@ -927,10 +1675,27 @@ export function AppProvider({ children }) {
     }
 
     if (!isSupabaseConfigured) {
+      const exists = (accounts || []).some(a => String(a.account_id || a.email || '').toUpperCase() === accountId);
+      if (exists) {
+        addNotification('Account ID already exists.', 'error');
+        return { ok: false };
+      }
       const local = { id: `demo-${Date.now()}`, name: payload.name, role: payload.role, account_id: payload.account_id };
       setAccounts(prev => [local, ...prev]);
+      addNotification('Account created.', 'success');
       await logActivity({ action: `Created account: ${local.account_id} (${local.role})`, area: 'user_management', entityType: 'account', entityId: local.id });
       return { ok: true, account: local };
+    }
+
+    if (desired) {
+      const { data: existing, error: existingErr } = await withTimeout(
+        supabase.from('accounts').select('id').eq('account_id', accountId).limit(1),
+        5000
+      );
+      if (!existingErr && existing?.[0]) {
+        addNotification('Account ID already exists.', 'error');
+        return { ok: false };
+      }
     }
 
     let { data, error } = await supabase.from('accounts').insert([payload]).select('*');
@@ -956,6 +1721,7 @@ export function AppProvider({ children }) {
       return { ok: true };
     }
     setAccounts(prev => [data[0], ...prev]);
+    addNotification('Account created.', 'success');
     await logActivity({
       action: `Created account: ${(data[0].account_id || data[0].email || payload.account_id)} (${data[0].role || payload.role})`,
       area: 'user_management',
@@ -971,13 +1737,18 @@ export function AppProvider({ children }) {
 
     if (!isSupabaseConfigured) {
       setAccounts(prev => prev.filter(a => a.id !== id));
+      addNotification('Account deleted.', 'success');
       await logActivity({ action: `Deleted account: ${(acct?.account_id || acct?.email || id)}`, area: 'user_management', entityType: 'account', entityId: id });
       return { ok: true };
     }
 
     const { error } = await supabase.from('accounts').delete().eq('id', id);
-    if (error) return { ok: false };
+    if (error) {
+      addNotification(error.message || 'Failed to delete account.', 'error');
+      return { ok: false };
+    }
     setAccounts(prev => prev.filter(a => a.id !== id));
+    addNotification('Account deleted.', 'success');
     await logActivity({ action: `Deleted account: ${(acct?.account_id || acct?.email || id)}`, area: 'user_management', entityType: 'account', entityId: id });
     return { ok: true };
   };
@@ -1017,21 +1788,32 @@ export function AppProvider({ children }) {
           { id: 'demo-admin', name: 'Admin User', account_id: 'ADM000001', role: 'admin' },
           { id: 'demo-cashier', name: 'Cashier User', account_id: 'CSH000001', role: 'cashier' }
         ]);
-        setCategories([
-          { id: 1, name: 'Drinks' },
-          { id: 2, name: 'Snacks' },
-          { id: 3, name: 'Meals' }
-        ]);
-        setProducts([
-          { id: 1, name: 'Coke', category_id: 1, categoryName: 'Drinks', price: 20, stock: 50, barcode: null },
-          { id: 2, name: 'Pepsi', category_id: 1, categoryName: 'Drinks', price: 20, stock: 40, barcode: null },
-          { id: 3, name: 'Chips', category_id: 2, categoryName: 'Snacks', price: 15, stock: 30, barcode: null },
-          { id: 4, name: 'Burger', category_id: 3, categoryName: 'Meals', price: 50, stock: 25, barcode: null }
-        ]);
+        if (!Array.isArray(categories) || categories.length === 0) {
+          const demoCategories = [
+            { id: 1, name: 'Drinks' },
+            { id: 2, name: 'Snacks' },
+            { id: 3, name: 'Meals' }
+          ];
+          setCategories(demoCategories);
+          persistCategories(demoCategories);
+        }
+        if (!Array.isArray(products) || products.length === 0) {
+          const demoProducts = [
+            { id: 1, name: 'Coke', category_id: 1, categoryName: 'Drinks', price: 20, stock: 50, barcode: null },
+            { id: 2, name: 'Pepsi', category_id: 1, categoryName: 'Drinks', price: 20, stock: 40, barcode: null },
+            { id: 3, name: 'Chips', category_id: 2, categoryName: 'Snacks', price: 15, stock: 30, barcode: null },
+            { id: 4, name: 'Burger', category_id: 3, categoryName: 'Meals', price: 50, stock: 25, barcode: null }
+          ];
+          setProducts(demoProducts);
+          persistProducts(demoProducts);
+        }
         if (!Array.isArray(ingredients) || ingredients.length === 0) {
           const demoIngredients = [
             { id: 1, name: 'Sugar', category: 'General', unit: 'g', quantity: 2000, min_stock: 500, created_at: new Date().toISOString() },
-            { id: 2, name: 'Milk', category: 'Milk', unit: 'ml', quantity: 5000, min_stock: 1000, created_at: new Date().toISOString() }
+            { id: 2, name: 'Milk', category: 'Milk', unit: 'ml', quantity: 5000, min_stock: 1000, created_at: new Date().toISOString() },
+            { id: 3, name: 'Pearls', category: 'Toppings', unit: 'g', quantity: 2000, min_stock: 500, created_at: new Date().toISOString() },
+            { id: 4, name: 'Cups', category: 'Packaging', unit: 'pcs', quantity: 200, min_stock: 50, created_at: new Date().toISOString() },
+            { id: 5, name: 'Straws', category: 'Packaging', unit: 'pcs', quantity: 300, min_stock: 100, created_at: new Date().toISOString() }
           ];
           setIngredients(demoIngredients);
           persistIngredients(demoIngredients);
@@ -1072,18 +1854,37 @@ export function AppProvider({ children }) {
             persistStoreSettings(storeSettings);
           }
         } catch {}
-        setProductSizes([
-          { id: 101, product_id: 1, name: 'Standard', price: 20, sort_order: 0, created_at: new Date().toISOString() },
-          { id: 102, product_id: 2, name: 'Standard', price: 20, sort_order: 0, created_at: new Date().toISOString() },
-          { id: 103, product_id: 3, name: 'Standard', price: 15, sort_order: 0, created_at: new Date().toISOString() },
-          { id: 104, product_id: 4, name: 'Standard', price: 50, sort_order: 0, created_at: new Date().toISOString() }
-        ]);
-        setProductSizeIngredients([]);
-        setProductIngredients([]);
-        setProductAddons([]);
-        setAddonIngredients([]);
-        setSales([]);
-        setDailySales(0);
+        if (!Array.isArray(productSizes) || productSizes.length === 0) {
+          const demoSizes = [
+            { id: 101, product_id: 1, name: 'Standard', price: 20, sort_order: 0, created_at: new Date().toISOString() },
+            { id: 102, product_id: 2, name: 'Standard', price: 20, sort_order: 0, created_at: new Date().toISOString() },
+            { id: 103, product_id: 3, name: 'Standard', price: 15, sort_order: 0, created_at: new Date().toISOString() },
+            { id: 104, product_id: 4, name: 'Standard', price: 50, sort_order: 0, created_at: new Date().toISOString() }
+          ];
+          setProductSizes(demoSizes);
+          persistProductSizes(demoSizes);
+        }
+        if (!Array.isArray(productSizeIngredients)) {
+          setProductSizeIngredients([]);
+          persistProductSizeIngredients([]);
+        }
+        if (!Array.isArray(productIngredients)) {
+          setProductIngredients([]);
+          persistProductIngredients([]);
+        }
+        if (!Array.isArray(productAddons)) {
+          setProductAddons([]);
+          persistProductAddons([]);
+        }
+        if (!Array.isArray(addonIngredients)) {
+          setAddonIngredients([]);
+          persistAddonIngredients([]);
+        }
+        if (!Array.isArray(sales) || sales.length === 0) {
+          setSales([]);
+          persistSales([]);
+        }
+        await refreshDailySales();
         setSalesReport([]);
         setIsDataLoaded(true);
         return;
@@ -1123,15 +1924,31 @@ export function AppProvider({ children }) {
     const normalizedPassword = (password || '').toString();
     if (!normalizedAccountId || !normalizedPassword) return { success: false, message: 'Enter account ID and password' };
 
+    const throttle = getLoginThrottleState(normalizedAccountId);
+    if (throttle.lockUntil && Date.now() < throttle.lockUntil) {
+      return { success: false, message: `Too many attempts. Try again in ${formatLockRemaining(throttle.lockUntil)}.` };
+    }
+
     if (!isSupabaseConfigured) {
       const demoAdmin = normalizedAccountId === 'ADM000001' && normalizedPassword === 'admin123';
       const demoCashier = normalizedAccountId === 'CSH000001' && normalizedPassword === 'cashier123';
-      if (!demoAdmin && !demoCashier) return { success: false, message: 'Invalid account ID or password' };
+      if (!demoAdmin && !demoCashier) {
+        const nextAttempts = (throttle.attempts || 0) + 1;
+        if (nextAttempts >= LOGIN_MAX_ATTEMPTS) {
+          const lockUntil = Date.now() + LOGIN_LOCK_MS;
+          setLoginThrottleState(normalizedAccountId, { attempts: LOGIN_MAX_ATTEMPTS, lockUntil });
+          return { success: false, message: `Too many attempts. Try again in ${formatLockRemaining(lockUntil)}.` };
+        }
+        setLoginThrottleState(normalizedAccountId, { attempts: nextAttempts, lockUntil: 0 });
+        const remaining = Math.max(0, LOGIN_MAX_ATTEMPTS - nextAttempts);
+        return { success: false, message: `Invalid account ID or password. Attempts left: ${remaining}.` };
+      }
       const demoUser = demoAdmin
         ? { id: 'demo-admin', name: 'Admin User', account_id: 'ADM000001', role: 'admin' }
         : { id: 'demo-cashier', name: 'Cashier User', account_id: 'CSH000001', role: 'cashier' };
       setUser(demoUser);
       localStorage.setItem('pos_user', JSON.stringify(demoUser));
+      clearLoginThrottleState(normalizedAccountId);
       await logActivity({ actor: demoUser, action: 'Account login', area: 'auth' });
       return { success: true, role: demoUser.role };
     }
@@ -1156,9 +1973,20 @@ export function AppProvider({ children }) {
       }
       if (error) throw error;
       const found = data && data[0];
-      if (!found) return { success: false, message: 'Invalid account ID or password' };
+      if (!found) {
+        const nextAttempts = (throttle.attempts || 0) + 1;
+        if (nextAttempts >= LOGIN_MAX_ATTEMPTS) {
+          const lockUntil = Date.now() + LOGIN_LOCK_MS;
+          setLoginThrottleState(normalizedAccountId, { attempts: LOGIN_MAX_ATTEMPTS, lockUntil });
+          return { success: false, message: `Too many attempts. Try again in ${formatLockRemaining(lockUntil)}.` };
+        }
+        setLoginThrottleState(normalizedAccountId, { attempts: nextAttempts, lockUntil: 0 });
+        const remaining = Math.max(0, LOGIN_MAX_ATTEMPTS - nextAttempts);
+        return { success: false, message: `Invalid account ID or password. Attempts left: ${remaining}.` };
+      }
       setUser(found);
       localStorage.setItem('pos_user', JSON.stringify(found));
+      clearLoginThrottleState(normalizedAccountId);
       await logActivity({ actor: found, action: 'Account login', area: 'auth' });
       return { success: true, role: found.role };
     } catch (err) {
@@ -1252,6 +2080,14 @@ export function AppProvider({ children }) {
     );
   };
 
+  const updateCartItem = (productId, updates) => {
+    setCart((prevCart) =>
+      prevCart.map((item) =>
+        item.id === productId ? { ...item, ...(updates || {}) } : item
+      )
+    );
+  };
+
   const clearCart = () => setCart([]);
 
   const cartTotal = cart.reduce(
@@ -1263,14 +2099,34 @@ export function AppProvider({ children }) {
     const trimmed = (name || '').toString().trim();
     if (!trimmed) return { ok: false };
     if (!isSupabaseConfigured) {
-      const local = { id: Date.now(), name: trimmed };
-      setCategories(prev => [local, ...prev]);
+      const local = { id: Date.now(), name: trimmed, _localUpdatedAt: Date.now() };
+      setCategories(prev => {
+        const next = [local, ...(prev || [])];
+        persistCategories(next);
+        return next;
+      });
+      addNotification('Category saved.', 'success');
       await logActivity({ action: `Created category: ${trimmed}`, area: 'product_management', entityType: 'category', entityId: local.id });
       return { ok: true, category: local };
     }
-    const { data, error } = await supabase.from('categories').insert([{ name: trimmed }]).select();
-    if (error || !data) return { ok: false };
-    setCategories(prev => [data[0], ...prev]);
+    const { data, error } = await withTimeout(supabase.from('categories').insert([{ name: trimmed }]).select(), 5000);
+    if (error || !data?.[0]) {
+      const local = { id: `local-${Date.now()}`, name: trimmed, _localUpdatedAt: Date.now() };
+      setCategories(prev => {
+        const next = [local, ...(prev || [])];
+        persistCategories(next);
+        return next;
+      });
+      addNotification('Category saved locally (database not available).', 'warning');
+      await logActivity({ action: `Created category: ${trimmed}`, area: 'product_management', entityType: 'category', entityId: local.id });
+      return { ok: true, category: local };
+    }
+    setCategories(prev => {
+      const next = [data[0], ...(prev || [])];
+      persistCategories(next);
+      return next;
+    });
+    addNotification('Category saved.', 'success');
     await logActivity({ action: `Created category: ${trimmed}`, area: 'product_management', entityType: 'category', entityId: data[0].id });
     return { ok: true, category: data[0] };
   };
@@ -1278,13 +2134,32 @@ export function AppProvider({ children }) {
   const deleteCategory = async (id) => {
     const name = categories.find(c => c.id === id)?.name ?? null;
     if (!isSupabaseConfigured) {
-      setCategories(prev => prev.filter(c => c.id !== id));
+      setCategories(prev => {
+        const next = (prev || []).filter(c => c.id !== id);
+        persistCategories(next);
+        return next;
+      });
+      addNotification('Category deleted.', 'success');
       await logActivity({ action: `Deleted category: ${name || id}`, area: 'product_management', entityType: 'category', entityId: id });
       return { ok: true };
     }
-    const { error } = await supabase.from('categories').delete().eq('id', id);
-    if (error) return { ok: false };
-    setCategories(prev => prev.filter(c => c.id !== id));
+    const { error } = await withTimeout(supabase.from('categories').delete().eq('id', id), 5000);
+    if (error) {
+      setCategories(prev => {
+        const next = (prev || []).filter(c => !sameId(c.id, id));
+        persistCategories(next);
+        return next;
+      });
+      addNotification('Category removed locally (database not available).', 'warning');
+      await logActivity({ action: `Deleted category: ${name || id}`, area: 'product_management', entityType: 'category', entityId: id });
+      return { ok: true };
+    }
+    setCategories(prev => {
+      const next = (prev || []).filter(c => c.id !== id);
+      persistCategories(next);
+      return next;
+    });
+    addNotification('Category deleted.', 'success');
     await logActivity({ action: `Deleted category: ${name || id}`, area: 'product_management', entityType: 'category', entityId: id });
     return { ok: true };
   };
@@ -1298,46 +2173,161 @@ export function AppProvider({ children }) {
       barcode: payload.barcode || null
     };
     if (!isSupabaseConfigured) {
-      const local = { ...insertPayload, id: Date.now(), categoryName: categories.find(c => c.id === insertPayload.category_id)?.name ?? null };
-      setProducts(prev => [local, ...prev]);
+      const local = {
+        ...insertPayload,
+        id: Date.now(),
+        categoryName: categories.find(c => String(c.id) === String(insertPayload.category_id))?.name ?? null,
+        _localUpdatedAt: Date.now()
+      };
+      setProducts(prev => {
+        const next = [local, ...(prev || [])];
+        persistProducts(next);
+        return next;
+      });
+      addNotification('Product saved.', 'success');
       await logActivity({ action: `Created product: ${local.name}`, area: 'product_management', entityType: 'product', entityId: local.id });
       return { ok: true, product: local };
     }
-    const { data, error } = await supabase.from('products').insert([insertPayload]).select();
-    if (error || !data) return { ok: false };
-    const created = { ...data[0], categoryName: categories.find(c => c.id === data[0].category_id)?.name ?? null };
-    setProducts(prev => [created, ...prev]);
+    let { data, error } = await withTimeout(supabase.from('products').insert([insertPayload]).select(), 5000);
+    if (error) {
+      const msg = String(error.message || '').toLowerCase();
+      let fallback = { ...insertPayload };
+      if (msg.includes('barcode')) delete fallback.barcode;
+      if (msg.includes('stock')) delete fallback.stock;
+      if (msg.includes('price')) delete fallback.price;
+      if (fallback !== insertPayload) {
+        const retry = await withTimeout(supabase.from('products').insert([fallback]).select(), 5000);
+        data = retry.data;
+        error = retry.error;
+      }
+    }
+    if (error || !data?.[0]) {
+      const local = {
+        ...insertPayload,
+        id: `local-${Date.now()}`,
+        categoryName: categories.find(c => String(c.id) === String(insertPayload.category_id))?.name ?? null,
+        _localUpdatedAt: Date.now()
+      };
+      setProducts(prev => {
+        const next = [local, ...(prev || [])];
+        persistProducts(next);
+        return next;
+      });
+      addNotification('Product saved locally (database not available).', 'warning');
+      await logActivity({ action: `Created product: ${local.name}`, area: 'product_management', entityType: 'product', entityId: local.id });
+      return { ok: true, product: local };
+    }
+    const created = {
+      ...data[0],
+      categoryName: categories.find(c => String(c.id) === String(data[0].category_id))?.name ?? null
+    };
+    setProducts(prev => {
+      const next = [created, ...(prev || [])];
+      persistProducts(next);
+      return next;
+    });
+    addNotification('Product saved.', 'success');
     await logActivity({ action: `Created product: ${created.name}`, area: 'product_management', entityType: 'product', entityId: created.id });
     return { ok: true, product: created };
   };
 
   const updateProduct = async (id, updates) => {
-    const name = products.find(p => p.id === id)?.name ?? null;
+    const name = products.find(p => String(p.id) === String(id))?.name ?? null;
     const payload = { ...updates };
     if (payload.price !== undefined) payload.price = Number(payload.price);
     if (payload.stock !== undefined) payload.stock = Number(payload.stock);
     if (!isSupabaseConfigured) {
-      setProducts(prev => prev.map(p => p.id === id ? { ...p, ...payload } : p));
+      setProducts(prev => {
+        const ts = Date.now();
+        const next = (prev || []).map(p => sameId(p.id, id) ? { ...p, ...payload, _localUpdatedAt: ts } : p);
+        persistProducts(next);
+        return next;
+      });
+      addNotification('Product updated.', 'success');
       await logActivity({ action: `Updated product: ${name || id}`, area: 'product_management', entityType: 'product', entityId: id });
       return { ok: true };
     }
-    const { error } = await supabase.from('products').update(payload).eq('id', id);
-    if (error) return { ok: false };
-    setProducts(prev => prev.map(p => p.id === id ? { ...p, ...payload } : p));
-    await logActivity({ action: `Updated product: ${name || id}`, area: 'product_management', entityType: 'product', entityId: id });
+    const applyLocalUpdate = (updatesToApply) => {
+      const ts = Date.now();
+      const nextCategoryName =
+        updatesToApply?.category_id !== undefined
+          ? (categories || []).find(c => String(c.id) === String(updatesToApply.category_id))?.name ?? null
+          : undefined;
+      setProducts(prev => {
+        const next = (prev || []).map(p => {
+          if (String(p.id) !== String(id)) return p;
+          const merged = { ...p, ...updatesToApply, _localUpdatedAt: ts };
+          if (nextCategoryName !== undefined) merged.categoryName = nextCategoryName;
+          return merged;
+        });
+        persistProducts(next);
+        return next;
+      });
+    };
+
+    const tryUpdate = async (updatesToApply) => {
+      const { data, error } = await withTimeout(
+        supabase.from('products').update(updatesToApply).eq('id', id).select('id').limit(1),
+        5000
+      );
+      if (error) return { ok: false, error };
+      if (!data?.[0]) return { ok: false, error: { message: 'No rows updated (permission denied or product not found).' } };
+      applyLocalUpdate(updatesToApply);
+      await logActivity({ action: `Updated product: ${name || id}`, area: 'product_management', entityType: 'product', entityId: id });
+      return { ok: true };
+    };
+
+    let res = await tryUpdate(payload);
+    if (!res.ok) {
+      const msg = String(res.error?.message || '');
+      const match = msg.match(/column \"([^\"]+)\"/i) || msg.match(/column '([^']+)'/i);
+      if (match?.[1]) {
+        const key = String(match[1]);
+        if (Object.prototype.hasOwnProperty.call(payload, key)) {
+          const retryPayload = { ...payload };
+          delete retryPayload[key];
+          res = await tryUpdate(retryPayload);
+          if (res.ok) return { ok: true };
+        }
+      }
+      applyLocalUpdate(payload);
+      addNotification('Product updated locally (database not available).', 'warning');
+      await logActivity({ action: `Updated product: ${name || id}`, area: 'product_management', entityType: 'product', entityId: id });
+      return { ok: true };
+    }
+    addNotification('Product updated.', 'success');
     return { ok: true };
   };
 
   const deleteProduct = async (id) => {
-    const name = products.find(p => p.id === id)?.name ?? null;
+    const name = products.find(p => sameId(p.id, id))?.name ?? null;
     if (!isSupabaseConfigured) {
-      setProducts(prev => prev.filter(p => p.id !== id));
+      setProducts(prev => {
+        const next = (prev || []).filter(p => !sameId(p.id, id));
+        persistProducts(next);
+        return next;
+      });
+      addNotification('Product deleted.', 'success');
       await logActivity({ action: `Deleted product: ${name || id}`, area: 'product_management', entityType: 'product', entityId: id });
       return { ok: true };
     }
-    const { error } = await supabase.from('products').delete().eq('id', id);
-    if (error) return { ok: false };
-    setProducts(prev => prev.filter(p => p.id !== id));
+    const { error } = await withTimeout(supabase.from('products').delete().eq('id', id), 5000);
+    if (error) {
+      setProducts(prev => {
+        const next = (prev || []).filter(p => !sameId(p.id, id));
+        persistProducts(next);
+        return next;
+      });
+      addNotification('Product removed locally (database not available).', 'warning');
+      await logActivity({ action: `Deleted product: ${name || id}`, area: 'product_management', entityType: 'product', entityId: id });
+      return { ok: true };
+    }
+    setProducts(prev => {
+      const next = (prev || []).filter(p => !sameId(p.id, id));
+      persistProducts(next);
+      return next;
+    });
+    addNotification('Product deleted.', 'success');
     await logActivity({ action: `Deleted product: ${name || id}`, area: 'product_management', entityType: 'product', entityId: id });
     return { ok: true };
   };
@@ -1346,12 +2336,12 @@ export function AppProvider({ children }) {
     const insertPayload = {
       name: (payload.name || '').toString().trim(),
       category: (payload.category || 'General').toString().trim(),
-      unit: (payload.unit || 'pcs').toString(),
+      unit: (payload.unit || 'g').toString(),
       quantity: Number(payload.quantity || 0),
       min_stock: Number(payload.min_stock || 0)
     };
     if (!insertPayload.name) return { ok: false };
-    ensureCategory('ingredient', insertPayload.category);
+    ensureCategory(isMaterialUnit(insertPayload.unit) ? 'material' : 'ingredient', insertPayload.category);
 
     if (!isSupabaseConfigured) {
       const local = { ...insertPayload, id: Date.now(), created_at: new Date().toISOString() };
@@ -1360,6 +2350,7 @@ export function AppProvider({ children }) {
         persistIngredients(next);
         return next;
       });
+      addNotification('Ingredient saved.', 'success');
       notifyLowStockIngredients([local]);
       await logActivity({ action: `Created ingredient: ${local.name}`, area: 'inventory', entityType: 'ingredient', entityId: local.id });
       return { ok: true, ingredient: local };
@@ -1385,6 +2376,7 @@ export function AppProvider({ children }) {
         persistIngredients(next);
         return next;
       });
+      addNotification('Ingredient saved.', 'success');
       notifyLowStockIngredients([created]);
       await logActivity({ action: `Created ingredient: ${created.name}`, area: 'inventory', entityType: 'ingredient', entityId: created.id });
       return { ok: true, ingredient: created };
@@ -1403,18 +2395,24 @@ export function AppProvider({ children }) {
   };
 
   const updateIngredient = async (id, updates) => {
-    const name = ingredients.find(i => i.id === id)?.name ?? null;
+    const name = ingredients.find(i => sameId(i.id, id))?.name ?? null;
+    const existing = ingredients.find(i => sameId(i.id, id)) || null;
     const payload = { ...updates };
     if (payload.category !== undefined) payload.category = (payload.category || '').toString();
     if (payload.quantity !== undefined) payload.quantity = Number(payload.quantity);
     if (payload.min_stock !== undefined) payload.min_stock = Number(payload.min_stock);
+    if (payload.category !== undefined) {
+      const effectiveUnit = payload.unit != null ? payload.unit : existing?.unit;
+      ensureCategory(isMaterialUnit(effectiveUnit) ? 'material' : 'ingredient', payload.category);
+    }
 
     if (!isSupabaseConfigured) {
       setIngredients(prev => {
-        const next = (prev || []).map(i => i.id === id ? { ...i, ...payload } : i);
+        const next = (prev || []).map(i => sameId(i.id, id) ? { ...i, ...payload, _localUpdatedAt: Date.now() } : i);
         persistIngredients(next);
         return next;
       });
+      addNotification('Ingredient updated.', 'success');
       await logActivity({ action: `Updated ingredient: ${name || id}`, area: 'inventory', entityType: 'ingredient', entityId: id });
       return { ok: true };
     }
@@ -1423,15 +2421,16 @@ export function AppProvider({ children }) {
       const { error } = await withTimeout(supabase.from('ingredients').update(payload).eq('id', id), 5000);
       if (error) throw error;
       setIngredients(prev => {
-        const next = (prev || []).map(i => i.id === id ? { ...i, ...payload } : i);
+        const next = (prev || []).map(i => sameId(i.id, id) ? { ...i, ...payload, _localUpdatedAt: Date.now() } : i);
         persistIngredients(next);
         return next;
       });
+      addNotification('Ingredient updated.', 'success');
       await logActivity({ action: `Updated ingredient: ${name || id}`, area: 'inventory', entityType: 'ingredient', entityId: id });
       return { ok: true };
     } catch {
       setIngredients(prev => {
-        const next = (prev || []).map(i => i.id === id ? { ...i, ...payload } : i);
+        const next = (prev || []).map(i => sameId(i.id, id) ? { ...i, ...payload, _localUpdatedAt: Date.now() } : i);
         persistIngredients(next);
         return next;
       });
@@ -1442,15 +2441,16 @@ export function AppProvider({ children }) {
   };
 
   const deleteIngredient = async (id) => {
-    const name = ingredients.find(i => i.id === id)?.name ?? null;
+    const name = ingredients.find(i => sameId(i.id, id))?.name ?? null;
     if (!isSupabaseConfigured) {
       setIngredients(prev => {
-        const next = (prev || []).filter(i => i.id !== id);
+        const next = (prev || []).filter(i => !sameId(i.id, id));
         persistIngredients(next);
         return next;
       });
       setProductIngredients(prev => prev.filter(r => r.ingredient_id !== id));
       setAddonIngredients(prev => prev.filter(r => r.ingredient_id !== id));
+      addNotification('Ingredient deleted.', 'success');
       await logActivity({ action: `Deleted ingredient: ${name || id}`, area: 'inventory', entityType: 'ingredient', entityId: id });
       return { ok: true };
     }
@@ -1461,26 +2461,27 @@ export function AppProvider({ children }) {
       addNotification('Ingredient deleted locally (database not available).', 'warning');
     }
     setIngredients(prev => {
-      const next = (prev || []).filter(i => i.id !== id);
+      const next = (prev || []).filter(i => !sameId(i.id, id));
       persistIngredients(next);
       return next;
     });
     setProductIngredients(prev => prev.filter(r => r.ingredient_id !== id));
     setAddonIngredients(prev => prev.filter(r => r.ingredient_id !== id));
+    addNotification('Ingredient deleted.', 'success');
     await logActivity({ action: `Deleted ingredient: ${name || id}`, area: 'inventory', entityType: 'ingredient', entityId: id });
     return { ok: true };
   };
 
   const adjustIngredientStock = async ({ ingredientId, change, reason }) => {
-    const ing = ingredients.find(x => x.id === ingredientId);
+    const ing = ingredients.find(x => sameId(x.id, ingredientId));
     if (!ing) return { ok: false };
     const nextQty = Number(ing.quantity) + Number(change);
     if (nextQty < 0) return { ok: false };
 
     if (!isSupabaseConfigured) {
-      const updated = { ...ing, quantity: nextQty };
+      const updated = { ...ing, quantity: nextQty, _localUpdatedAt: Date.now() };
       setIngredients(prev => {
-        const next = (prev || []).map(x => x.id === ingredientId ? updated : x);
+        const next = (prev || []).map(x => sameId(x.id, ingredientId) ? updated : x);
         persistIngredients(next);
         return next;
       });
@@ -1504,9 +2505,9 @@ export function AppProvider({ children }) {
     } catch {
       addNotification('Ingredient stock adjusted locally (database not available).', 'warning');
     }
-    const updated = { ...ing, quantity: nextQty };
+    const updated = { ...ing, quantity: nextQty, _localUpdatedAt: Date.now() };
     setIngredients(prev => {
-      const next = (prev || []).map(x => x.id === ingredientId ? updated : x);
+      const next = (prev || []).map(x => sameId(x.id, ingredientId) ? updated : x);
       persistIngredients(next);
       return next;
     });
@@ -1520,186 +2521,24 @@ export function AppProvider({ children }) {
   };
 
   const createMaterial = async (payload) => {
-    const insertPayload = {
-      name: (payload.name || '').toString().trim(),
-      category: (payload.category || 'General').toString().trim(),
-      unit: (payload.unit || 'pcs').toString(),
-      quantity: Number(payload.quantity || 0),
-      min_stock: Number(payload.min_stock || 0)
-    };
-    if (!insertPayload.name) return { ok: false };
-    ensureCategory('material', insertPayload.category);
-
-    if (!isSupabaseConfigured) {
-      const local = { ...insertPayload, id: Date.now(), created_at: new Date().toISOString() };
-      setMaterials(prev => {
-        const next = [local, ...(prev || [])];
-        persistMaterials(next);
-        return next;
-      });
-      await logActivity({ action: `Created material: ${local.name}`, area: 'inventory', entityType: 'material', entityId: local.id });
-      return { ok: true, material: local };
-    }
-
-    try {
-      const { data, error } = await withTimeout(
-        supabase
-          .from('materials')
-          .insert([insertPayload])
-          .select('id,name,category,unit,quantity,min_stock,created_at'),
-        5000
-      );
-      if (error || !data?.[0]) throw error || new Error('create failed');
-      const created = {
-        ...data[0],
-        category: data[0].category ?? insertPayload.category ?? null,
-        quantity: Number(data[0].quantity),
-        min_stock: Number(data[0].min_stock)
-      };
-      setMaterials(prev => {
-        const next = [created, ...(prev || [])];
-        persistMaterials(next);
-        return next;
-      });
-      await logActivity({ action: `Created material: ${created.name}`, area: 'inventory', entityType: 'material', entityId: created.id });
-      return { ok: true, material: created };
-    } catch {
-      const local = { ...insertPayload, id: Date.now(), created_at: new Date().toISOString() };
-      setMaterials(prev => {
-        const next = [local, ...(prev || [])];
-        persistMaterials(next);
-        return next;
-      });
-      addNotification('Material saved locally (database not available).', 'warning');
-      await logActivity({ action: `Created material: ${local.name}`, area: 'inventory', entityType: 'material', entityId: local.id });
-      return { ok: true, material: local };
-    }
+    const res = await createIngredient({
+      ...payload,
+      unit: payload?.unit ? payload.unit : 'pcs'
+    });
+    if (res?.ok && res.ingredient) return { ...res, material: res.ingredient };
+    return res;
   };
 
   const updateMaterial = async (id, updates) => {
-    const name = materials.find(m => m.id === id)?.name ?? null;
-    const payload = { ...updates };
-    if (payload.category !== undefined) payload.category = (payload.category || '').toString();
-    if (payload.quantity !== undefined) payload.quantity = Number(payload.quantity);
-    if (payload.min_stock !== undefined) payload.min_stock = Number(payload.min_stock);
-    if (payload.category) ensureCategory('material', payload.category);
-
-    if (!isSupabaseConfigured) {
-      setMaterials(prev => {
-        const next = (prev || []).map(m => m.id === id ? { ...m, ...payload } : m);
-        persistMaterials(next);
-        return next;
-      });
-      await logActivity({ action: `Updated material: ${name || id}`, area: 'inventory', entityType: 'material', entityId: id });
-      return { ok: true };
-    }
-
-    try {
-      const { error } = await withTimeout(supabase.from('materials').update(payload).eq('id', id), 5000);
-      if (error) throw error;
-      setMaterials(prev => {
-        const next = (prev || []).map(m => m.id === id ? { ...m, ...payload } : m);
-        persistMaterials(next);
-        return next;
-      });
-      await logActivity({ action: `Updated material: ${name || id}`, area: 'inventory', entityType: 'material', entityId: id });
-      return { ok: true };
-    } catch {
-      setMaterials(prev => {
-        const next = (prev || []).map(m => m.id === id ? { ...m, ...payload } : m);
-        persistMaterials(next);
-        return next;
-      });
-      addNotification('Material updated locally (database not available).', 'warning');
-      await logActivity({ action: `Updated material: ${name || id}`, area: 'inventory', entityType: 'material', entityId: id });
-      return { ok: true };
-    }
+    return await updateIngredient(id, updates);
   };
 
   const deleteMaterial = async (id) => {
-    const name = materials.find(m => m.id === id)?.name ?? null;
-    if (!isSupabaseConfigured) {
-      setMaterials(prev => {
-        const next = (prev || []).filter(m => m.id !== id);
-        persistMaterials(next);
-        return next;
-      });
-      await logActivity({ action: `Deleted material: ${name || id}`, area: 'inventory', entityType: 'material', entityId: id });
-      return { ok: true };
-    }
-    try {
-      const { error } = await withTimeout(supabase.from('materials').delete().eq('id', id), 5000);
-      if (error) throw error;
-      setMaterials(prev => {
-        const next = (prev || []).filter(m => m.id !== id);
-        persistMaterials(next);
-        return next;
-      });
-      await logActivity({ action: `Deleted material: ${name || id}`, area: 'inventory', entityType: 'material', entityId: id });
-      return { ok: true };
-    } catch {
-      setMaterials(prev => {
-        const next = (prev || []).filter(m => m.id !== id);
-        persistMaterials(next);
-        return next;
-      });
-      addNotification('Material deleted locally (database not available).', 'warning');
-      await logActivity({ action: `Deleted material: ${name || id}`, area: 'inventory', entityType: 'material', entityId: id });
-      return { ok: true };
-    }
+    return await deleteIngredient(id);
   };
 
   const adjustMaterialStock = async ({ materialId, change, reason }) => {
-    const m = materials.find(x => x.id === materialId);
-    if (!m) return { ok: false };
-    const nextQty = Number(m.quantity) + Number(change);
-    if (nextQty < 0) return { ok: false };
-
-    if (!isSupabaseConfigured) {
-      const updated = { ...m, quantity: nextQty };
-      setMaterials(prev => {
-        const next = (prev || []).map(x => x.id === materialId ? updated : x);
-        persistMaterials(next);
-        return next;
-      });
-      if (String(reason || '').toLowerCase() !== 'sale') {
-        const unit = m.unit ? ` ${m.unit}` : '';
-        const sign = Number(change) >= 0 ? '+' : '';
-        await logActivity({ action: `Adjusted material stock: ${m.name} (${sign}${Number(change)}${unit})`, area: 'inventory', entityType: 'material', entityId: materialId });
-      }
-      return { ok: true };
-    }
-
-    try {
-      const { error: updErr } = await withTimeout(supabase.from('materials').update({ quantity: nextQty }).eq('id', materialId), 5000);
-      if (updErr) throw updErr;
-      const updated = { ...m, quantity: nextQty };
-      setMaterials(prev => {
-        const next = (prev || []).map(x => x.id === materialId ? updated : x);
-        persistMaterials(next);
-        return next;
-      });
-      if (String(reason || '').toLowerCase() !== 'sale') {
-        const unit = m.unit ? ` ${m.unit}` : '';
-        const sign = Number(change) >= 0 ? '+' : '';
-        await logActivity({ action: `Adjusted material stock: ${m.name} (${sign}${Number(change)}${unit})`, area: 'inventory', entityType: 'material', entityId: materialId });
-      }
-      return { ok: true };
-    } catch {
-      const updated = { ...m, quantity: nextQty };
-      setMaterials(prev => {
-        const next = (prev || []).map(x => x.id === materialId ? updated : x);
-        persistMaterials(next);
-        return next;
-      });
-      addNotification('Material stock adjusted locally (database not available).', 'warning');
-      if (String(reason || '').toLowerCase() !== 'sale') {
-        const unit = m.unit ? ` ${m.unit}` : '';
-        const sign = Number(change) >= 0 ? '+' : '';
-        await logActivity({ action: `Adjusted material stock: ${m.name} (${sign}${Number(change)}${unit})`, area: 'inventory', entityType: 'material', entityId: materialId });
-      }
-      return { ok: true };
-    }
+    return await adjustIngredientStock({ ingredientId: materialId, change, reason });
   };
 
   const createAddon = async (payload) => {
@@ -1719,6 +2558,7 @@ export function AppProvider({ children }) {
         persistAddons(next);
         return next;
       });
+      addNotification('Add-on saved.', 'success');
       await logActivity({ action: `Created add-on: ${local.name}`, area: 'inventory', entityType: 'addon', entityId: local.id });
       return { ok: true, addon: local };
     }
@@ -1743,6 +2583,7 @@ export function AppProvider({ children }) {
         persistAddons(next);
         return next;
       });
+      addNotification('Add-on saved.', 'success');
       await logActivity({ action: `Created add-on: ${created.name}`, area: 'inventory', entityType: 'addon', entityId: created.id });
       return { ok: true, addon: created };
     } catch {
@@ -1759,7 +2600,7 @@ export function AppProvider({ children }) {
   };
 
   const updateAddon = async (id, updates) => {
-    const name = addons.find(a => a.id === id)?.name ?? null;
+    const name = addons.find(a => sameId(a.id, id))?.name ?? null;
     const payload = { ...updates };
     if (payload.category !== undefined) payload.category = (payload.category || '').toString();
     if (payload.price_per_unit !== undefined) payload.price_per_unit = Number(payload.price_per_unit);
@@ -1768,10 +2609,11 @@ export function AppProvider({ children }) {
 
     if (!isSupabaseConfigured) {
       setAddons(prev => {
-        const next = (prev || []).map(a => a.id === id ? { ...a, ...payload } : a);
+        const next = (prev || []).map(a => sameId(a.id, id) ? { ...a, ...payload, _localUpdatedAt: Date.now() } : a);
         persistAddons(next);
         return next;
       });
+      addNotification('Add-on updated.', 'success');
       await logActivity({ action: `Updated add-on: ${name || id}`, area: 'inventory', entityType: 'addon', entityId: id });
       return { ok: true };
     }
@@ -1780,15 +2622,16 @@ export function AppProvider({ children }) {
       const { error } = await withTimeout(supabase.from('addons').update(payload).eq('id', id), 5000);
       if (error) throw error;
       setAddons(prev => {
-        const next = (prev || []).map(a => a.id === id ? { ...a, ...payload } : a);
+        const next = (prev || []).map(a => sameId(a.id, id) ? { ...a, ...payload, _localUpdatedAt: Date.now() } : a);
         persistAddons(next);
         return next;
       });
+      addNotification('Add-on updated.', 'success');
       await logActivity({ action: `Updated add-on: ${name || id}`, area: 'inventory', entityType: 'addon', entityId: id });
       return { ok: true };
     } catch {
       setAddons(prev => {
-        const next = (prev || []).map(a => a.id === id ? { ...a, ...payload } : a);
+        const next = (prev || []).map(a => sameId(a.id, id) ? { ...a, ...payload, _localUpdatedAt: Date.now() } : a);
         persistAddons(next);
         return next;
       });
@@ -1799,15 +2642,16 @@ export function AppProvider({ children }) {
   };
 
   const deleteAddon = async (id) => {
-    const name = addons.find(a => a.id === id)?.name ?? null;
+    const name = addons.find(a => sameId(a.id, id))?.name ?? null;
     if (!isSupabaseConfigured) {
       setAddons(prev => {
-        const next = (prev || []).filter(a => a.id !== id);
+        const next = (prev || []).filter(a => !sameId(a.id, id));
         persistAddons(next);
         return next;
       });
       setProductAddons(prev => prev.filter(r => r.addon_id !== id));
       setAddonIngredients(prev => prev.filter(r => r.addon_id !== id));
+      addNotification('Add-on deleted.', 'success');
       await logActivity({ action: `Deleted add-on: ${name || id}`, area: 'inventory', entityType: 'addon', entityId: id });
       return { ok: true };
     }
@@ -1818,18 +2662,19 @@ export function AppProvider({ children }) {
       addNotification('Add-on deleted locally (database not available).', 'warning');
     }
     setAddons(prev => {
-      const next = (prev || []).filter(a => a.id !== id);
+      const next = (prev || []).filter(a => !sameId(a.id, id));
       persistAddons(next);
       return next;
     });
     setProductAddons(prev => prev.filter(r => r.addon_id !== id));
     setAddonIngredients(prev => prev.filter(r => r.addon_id !== id));
+    addNotification('Add-on deleted.', 'success');
     await logActivity({ action: `Deleted add-on: ${name || id}`, area: 'inventory', entityType: 'addon', entityId: id });
     return { ok: true };
   };
 
   const setProductSizesWithBOM = async (productId, sizes) => {
-    const productName = products.find(p => Number(p.id) === Number(productId))?.name ?? null;
+    const productName = products.find(p => String(p.id) === String(productId))?.name ?? null;
     const normalized = (sizes || [])
       .map((s, idx) => ({
         name: (s.name || '').toString().trim(),
@@ -1859,55 +2704,107 @@ export function AppProvider({ children }) {
             quantity: Number(l.quantity)
           }));
       });
-      setProductSizes(prev => [...prev.filter(s => s.product_id !== productId), ...localSizes]);
-      setProductSizeIngredients(prev => [
-        ...prev.filter(r => !localSizes.some(sz => sz.id === r.product_size_id)),
-        ...localIngredients
-      ]);
+      setProductSizes(prev => {
+        const next = [...(prev || []).filter(s => String(s.product_id) !== String(productId)), ...localSizes];
+        persistProductSizes(next);
+        return next;
+      });
+      setProductSizeIngredients(prev => {
+        const next = [
+          ...(prev || []).filter(r => !localSizes.some(sz => String(sz.id) === String(r.product_size_id))),
+          ...localIngredients
+        ];
+        persistProductSizeIngredients(next);
+        return next;
+      });
+      addNotification('BOM saved.', 'success');
       await logActivity({ action: `Updated product sizes/BOM: ${productName || productId}`, area: 'product_management', entityType: 'product', entityId: productId });
       return { ok: true };
     }
 
-    const { error: delErr } = await supabase.from('product_sizes').delete().eq('product_id', productId);
-    if (delErr) return { ok: false, error: delErr.message };
+    try {
+      const { error: delErr } = await withTimeout(supabase.from('product_sizes').delete().eq('product_id', productId), 5000);
+      if (delErr) throw delErr;
 
-    if (normalized.length === 0) {
+      if (normalized.length === 0) {
+        await fetchProductSizes();
+        await fetchProductSizeIngredients();
+        await logActivity({ action: `Updated product sizes/BOM: ${productName || productId}`, area: 'product_management', entityType: 'product', entityId: productId });
+        return { ok: true };
+      }
+
+      const { data: sizeData, error: sizeErr } = await withTimeout(
+        supabase
+          .from('product_sizes')
+          .insert(normalized.map(s => ({
+            product_id: productId,
+            name: s.name,
+            price: s.price,
+            sort_order: s.sort_order
+          })))
+          .select('id,product_id,name,price,sort_order,created_at'),
+        5000
+      );
+      if (sizeErr || !sizeData) throw sizeErr || new Error('Failed to save sizes');
+
+      const ingredientRows = (sizeData || []).flatMap((sz, i) => {
+        const lines = normalized[i]?.bomLines || [];
+        return lines
+          .filter(l => l.ingredient_id && Number(l.quantity) > 0)
+          .map(l => ({
+            product_size_id: sz.id,
+          ingredient_id: Number(l.ingredient_id),
+            quantity: Number(l.quantity)
+          }));
+      });
+
+      if (ingredientRows.length > 0) {
+        const { error: ingErr } = await withTimeout(supabase.from('product_size_ingredients').insert(ingredientRows), 5000);
+        if (ingErr) throw ingErr;
+      }
+
       await fetchProductSizes();
       await fetchProductSizeIngredients();
+      addNotification('BOM saved.', 'success');
+      await logActivity({ action: `Updated product sizes/BOM: ${productName || productId}`, area: 'product_management', entityType: 'product', entityId: productId });
       return { ok: true };
-    }
-
-    const { data: sizeData, error: sizeErr } = await supabase
-      .from('product_sizes')
-      .insert(normalized.map(s => ({
+    } catch {
+      const base = Date.now();
+      const localSizes = normalized.map((s, i) => ({
+        id: base + i,
         product_id: productId,
         name: s.name,
         price: s.price,
-        sort_order: s.sort_order
-      })))
-      .select('id,product_id,name,price,sort_order,created_at');
-    if (sizeErr || !sizeData) return { ok: false, error: sizeErr?.message || 'Failed to save sizes' };
-
-    const ingredientRows = (sizeData || []).flatMap((sz, i) => {
-      const lines = normalized[i]?.bomLines || [];
-      return lines
-        .filter(l => l.ingredient_id && Number(l.quantity) > 0)
-        .map(l => ({
-          product_size_id: sz.id,
-          ingredient_id: Number(l.ingredient_id),
-          quantity: Number(l.quantity)
-        }));
-    });
-
-    if (ingredientRows.length > 0) {
-      const { error: ingErr } = await supabase.from('product_size_ingredients').insert(ingredientRows);
-      if (ingErr) return { ok: false, error: ingErr.message || 'Failed to save size ingredients' };
+        sort_order: s.sort_order,
+        created_at: new Date().toISOString()
+      }));
+      const localIngredients = localSizes.flatMap((sz, i) => {
+        const lines = normalized[i].bomLines || [];
+        return lines
+          .filter(l => l.ingredient_id && Number(l.quantity) > 0)
+          .map(l => ({
+            product_size_id: sz.id,
+            ingredient_id: String(l.ingredient_id),
+            quantity: Number(l.quantity)
+          }));
+      });
+      setProductSizes(prev => {
+        const next = [...(prev || []).filter(s => String(s.product_id) !== String(productId)), ...localSizes];
+        persistProductSizes(next);
+        return next;
+      });
+      setProductSizeIngredients(prev => {
+        const next = [
+          ...(prev || []).filter(r => !localSizes.some(sz => String(sz.id) === String(r.product_size_id))),
+          ...localIngredients
+        ];
+        persistProductSizeIngredients(next);
+        return next;
+      });
+      addNotification('BOM saved locally (database not available).', 'warning');
+      await logActivity({ action: `Updated product sizes/BOM: ${productName || productId}`, area: 'product_management', entityType: 'product', entityId: productId });
+      return { ok: true, localOnly: true };
     }
-
-    await fetchProductSizes();
-    await fetchProductSizeIngredients();
-    await logActivity({ action: `Updated product sizes/BOM: ${productName || productId}`, area: 'product_management', entityType: 'product', entityId: productId });
-    return { ok: true };
   };
 
   const setProductBOM = async (productId, lines) => {
@@ -1920,7 +2817,12 @@ export function AppProvider({ children }) {
       }));
 
     if (!isSupabaseConfigured) {
-      setProductIngredients(prev => [...prev.filter(r => r.product_id !== productId), ...rows]);
+      setProductIngredients(prev => {
+        const next = [...(prev || []).filter(r => String(r.product_id) !== String(productId)), ...rows];
+        persistProductIngredients(next);
+        return next;
+      });
+      addNotification('BOM saved.', 'success');
       return { ok: true };
     }
 
@@ -1931,11 +2833,12 @@ export function AppProvider({ children }) {
       if (insErr) return { ok: false };
     }
     await fetchProductIngredients();
+    addNotification('BOM saved.', 'success');
     return { ok: true };
   };
 
   const setAddonBOM = async (addonId, lines) => {
-    const addonName = addons.find(a => Number(a.id) === Number(addonId))?.name ?? null;
+    const addonName = addons.find(a => String(a.id) === String(addonId))?.name ?? null;
     const rows = (lines || [])
       .filter(l => l.ingredient_id && Number(l.quantity) > 0)
       .map(l => ({
@@ -1945,7 +2848,12 @@ export function AppProvider({ children }) {
       }));
 
     if (!isSupabaseConfigured) {
-      setAddonIngredients(prev => [...prev.filter(r => r.addon_id !== addonId), ...rows]);
+      setAddonIngredients(prev => {
+        const next = [...(prev || []).filter(r => String(r.addon_id) !== String(addonId)), ...rows];
+        persistAddonIngredients(next);
+        return next;
+      });
+      addNotification('BOM saved.', 'success');
       await logActivity({ action: `Updated add-on BOM: ${addonName || addonId}`, area: 'inventory', entityType: 'addon', entityId: addonId });
       return { ok: true };
     }
@@ -1957,40 +2865,63 @@ export function AppProvider({ children }) {
       if (insErr) return { ok: false };
     }
     await fetchAddonIngredients();
+    addNotification('BOM saved.', 'success');
     await logActivity({ action: `Updated add-on BOM: ${addonName || addonId}`, area: 'inventory', entityType: 'addon', entityId: addonId });
     return { ok: true };
   };
 
   const setProductAddonsForProduct = async (productId, addonIds) => {
-    const productName = products.find(p => Number(p.id) === Number(productId))?.name ?? null;
-    const ids = (addonIds || []).map(x => Number(x)).filter(Boolean);
+    const productName = products.find(p => String(p.id) === String(productId))?.name ?? null;
+    const ids = (addonIds || []).map(x => String(x)).filter(Boolean);
     const rows = ids.map(aid => ({ product_id: productId, addon_id: aid }));
 
     if (!isSupabaseConfigured) {
-      setProductAddons(prev => [...prev.filter(r => r.product_id !== productId), ...rows]);
+      setProductAddons(prev => {
+        const next = [...(prev || []).filter(r => String(r.product_id) !== String(productId)), ...rows];
+        persistProductAddons(next);
+        return next;
+      });
+      addNotification('Product add-ons saved.', 'success');
       await logActivity({ action: `Updated product add-ons: ${productName || productId}`, area: 'product_management', entityType: 'product', entityId: productId });
       return { ok: true };
     }
 
-    const { error: delErr } = await supabase.from('product_addons').delete().eq('product_id', productId);
-    if (delErr) return { ok: false };
-    if (rows.length > 0) {
-      const { error: insErr } = await supabase.from('product_addons').insert(rows);
-      if (insErr) return { ok: false };
+    try {
+      const { error: delErr } = await withTimeout(supabase.from('product_addons').delete().eq('product_id', productId), 5000);
+      if (delErr) throw delErr;
+      if (rows.length > 0) {
+        const { error: insErr } = await withTimeout(supabase.from('product_addons').insert(rows), 5000);
+        if (insErr) throw insErr;
+      }
+      await fetchProductAddons();
+      addNotification('Product add-ons saved.', 'success');
+      await logActivity({ action: `Updated product add-ons: ${productName || productId}`, area: 'product_management', entityType: 'product', entityId: productId });
+      return { ok: true };
+    } catch {
+      setProductAddons(prev => {
+        const next = [...(prev || []).filter(r => String(r.product_id) !== String(productId)), ...rows];
+        persistProductAddons(next);
+        return next;
+      });
+      addNotification('Product add-ons saved locally (database not available).', 'warning');
+      await logActivity({ action: `Updated product add-ons: ${productName || productId}`, area: 'product_management', entityType: 'product', entityId: productId });
+      return { ok: true, localOnly: true };
     }
-    await fetchProductAddons();
-    await logActivity({ action: `Updated product add-ons: ${productName || productId}`, area: 'product_management', entityType: 'product', entityId: productId });
-    return { ok: true };
   };
 
   const adjustProductStock = async ({ productId, change, reason }) => {
-    const p = products.find(x => x.id === productId);
+    const p = products.find(x => sameId(x.id, productId));
     if (!p) return { ok: false };
+    if (p.stock == null) return { ok: true };
     const nextStock = Number(p.stock) + Number(change);
     if (nextStock < 0) return { ok: false };
 
     if (!isSupabaseConfigured) {
-      setProducts(prev => prev.map(x => x.id === productId ? { ...x, stock: nextStock } : x));
+      setProducts(prev => {
+        const next = (prev || []).map(x => sameId(x.id, productId) ? { ...x, stock: nextStock } : x);
+        persistProducts(next);
+        return next;
+      });
       if (String(reason || '').toLowerCase() !== 'sale') {
         const sign = Number(change) >= 0 ? '+' : '';
         await logActivity({ action: `Adjusted product stock: ${p.name} (${sign}${Number(change)})`, area: 'product_management', entityType: 'product', entityId: productId });
@@ -1998,13 +2929,33 @@ export function AppProvider({ children }) {
       return { ok: true };
     }
 
-    const { error: updErr } = await supabase.from('products').update({ stock: nextStock }).eq('id', productId);
-    if (updErr) return { ok: false, error: updErr.message || 'Failed to update product stock' };
-    const { error: logErr } = await supabase
-      .from('inventory_logs')
-      .insert([{ product_id: productId, change: Number(change), reason }]);
-    if (logErr) return { ok: false, error: logErr.message || 'Failed to write inventory log' };
-    setProducts(prev => prev.map(x => x.id === productId ? { ...x, stock: nextStock } : x));
+    try {
+      const { error: updErr } = await withTimeout(supabase.from('products').update({ stock: nextStock }).eq('id', productId), 5000);
+      if (updErr) throw updErr;
+      const { error: logErr } = await withTimeout(
+        supabase.from('inventory_logs').insert([{ product_id: productId, change: Number(change), reason }]),
+        5000
+      );
+      if (logErr) throw logErr;
+    } catch (err) {
+      setProducts(prev => {
+        const next = (prev || []).map(x => sameId(x.id, productId) ? { ...x, stock: nextStock } : x);
+        persistProducts(next);
+        return next;
+      });
+      addNotification('Stock updated locally (database not available).', 'warning');
+      if (String(reason || '').toLowerCase() !== 'sale') {
+        const sign = Number(change) >= 0 ? '+' : '';
+        await logActivity({ action: `Adjusted product stock: ${p.name} (${sign}${Number(change)})`, area: 'product_management', entityType: 'product', entityId: productId });
+      }
+      return { ok: true, localOnly: true, error: err?.message || null };
+    }
+
+    setProducts(prev => {
+      const next = (prev || []).map(x => sameId(x.id, productId) ? { ...x, stock: nextStock } : x);
+      persistProducts(next);
+      return next;
+    });
     if (String(reason || '').toLowerCase() !== 'sale') {
       const sign = Number(change) >= 0 ? '+' : '';
       await logActivity({ action: `Adjusted product stock: ${p.name} (${sign}${Number(change)})`, area: 'product_management', entityType: 'product', entityId: productId });
@@ -2014,29 +2965,113 @@ export function AppProvider({ children }) {
 
   const checkProductAvailability = (product, qty = 1, productSizeId = null) => {
     const requiredQty = Number(qty || 1);
-    if (product?.stock != null && Number(product.stock || 0) <= 0) return false;
     const pid = product?.id;
-    const sizes = pid ? (sizesByProductId.get(pid) || []) : [];
-    const resolvedSizeId = Number(productSizeId || sizes[0]?.id || 0) || null;
-    const sizeBom = resolvedSizeId ? (sizeIngredientsBySizeId.get(resolvedSizeId) || []) : [];
-    const productBom = productBomByProductId.get(pid) || [];
-    const bom = sizeBom.length > 0 ? sizeBom : productBom;
+    const sizes = pid != null ? (sizesByProductId.get(String(pid)) || []) : [];
+    const resolvedSizeId = productSizeId ?? sizes[0]?.id ?? null;
+    const sizeKey = resolvedSizeId == null ? null : String(resolvedSizeId);
+    const sizeBom = sizeKey ? (sizeIngredientsBySizeId.get(sizeKey) || []) : [];
+    const productBom = pid != null ? (productBomByProductId.get(String(pid)) || []) : [];
+    const bom = [...productBom, ...sizeBom];
 
-    if (bom.length === 0 || ingredients.length === 0) {
+    if (bom.length === 0 || (ingredients.length === 0 && materials.length === 0)) {
+      if (product?.stock == null) return true;
+      if (Number(product.stock || 0) <= 0) return false;
       return Number(product?.stock || 0) >= requiredQty;
     }
 
+    const requiredIngredients = new Map();
+    const requiredMaterials = new Map();
     for (const row of bom) {
-      const ing = ingredientById.get(row.ingredient_id);
+      const ref = parseBomRef(row.ingredient_id);
+      const key = String(ref.id);
+      const target = ref.type === 'material' ? requiredMaterials : requiredIngredients;
+      target.set(key, (target.get(key) || 0) + Number(row.quantity || 0) * requiredQty);
+    }
+    for (const [id, required] of requiredIngredients.entries()) {
+      const ing = ingredientById.get(String(id));
       const available = Number(ing?.quantity || 0);
-      const required = Number(row.quantity || 0) * requiredQty;
+      if (available < required) return false;
+    }
+    for (const [id, required] of requiredMaterials.entries()) {
+      const m = materialById.get(String(id));
+      const available = Number(m?.quantity || 0);
       if (available < required) return false;
     }
     return true;
   };
 
+  const getCombinedBomRows = (productId, productSizeId = null) => {
+    const sizeKey = productSizeId == null ? null : String(productSizeId);
+    const sizeBom = sizeKey ? (sizeIngredientsBySizeId.get(sizeKey) || []) : [];
+    const productBom = productBomByProductId.get(String(productId)) || [];
+    return [...productBom, ...sizeBom];
+  };
+
+  const buildRequiredBOMFromCart = (cartItems) => {
+    const requiredIngredients = new Map();
+    const requiredMaterials = new Map();
+    const requiredProductStock = new Map();
+
+    for (const item of cartItems || []) {
+      const productId = String(item.product_id ?? item.id);
+      const qty = Number(item.quantity || 0);
+      const sizeId = item.product_size_id ?? item.size_id ?? null;
+      const bom = getCombinedBomRows(productId, sizeId);
+
+      // Base recipe per drink + selected size recipe per drink.
+      for (const row of bom) {
+        const ref = parseBomRef(row.ingredient_id);
+        const key = String(ref.id);
+        const target = ref.type === 'material' ? requiredMaterials : requiredIngredients;
+        target.set(key, (target.get(key) || 0) + Number(row.quantity || 0) * qty);
+      }
+
+      // Add-on servings are additive to base servings:
+      // ingredient_used = addon_recipe_qty * addon_servings_per_drink * drink_qty
+      for (const a of item.addons || item.displayAddons || []) {
+        const addonId = String(a.addon_id ?? a.id);
+        const perDrinkAddonServings = Math.max(0, Number(a.quantity || 0));
+        const addonBom = addonBomByAddonId.get(String(addonId)) || [];
+        if (addonBom.length > 0) {
+          for (const row of addonBom) {
+            const ref = parseBomRef(row.ingredient_id);
+            const key = String(ref.id);
+            const target = ref.type === 'material' ? requiredMaterials : requiredIngredients;
+            target.set(
+              key,
+              (target.get(key) || 0) + Number(row.quantity || 0) * perDrinkAddonServings * qty
+            );
+          }
+        } else {
+          const addonMeta = addonById.get(String(addonId));
+          const addonName = String(addonMeta?.name || '').trim().toLowerCase();
+          if (addonName) {
+            for (const row of bom) {
+              const ref = parseBomRef(row.ingredient_id);
+              const key = String(ref.id);
+              const target = ref.type === 'material' ? requiredMaterials : requiredIngredients;
+              const itemMeta = ref.type === 'material' ? materialById.get(key) : ingredientById.get(key);
+              const baseName = String(itemMeta?.name || '').trim().toLowerCase();
+              if (!baseName) continue;
+              if (baseName === addonName || baseName.includes(addonName) || addonName.includes(baseName)) {
+                target.set(key, (target.get(key) || 0) + Number(row.quantity || 0) * perDrinkAddonServings * qty);
+              }
+            }
+          }
+        }
+      }
+
+      // If no BOM lines are defined for this item, use product stock fallback.
+      if (bom.length === 0) {
+        requiredProductStock.set(productId, (requiredProductStock.get(productId) || 0) + qty);
+      }
+    }
+
+    return { requiredIngredients, requiredMaterials, requiredProductStock };
+  };
+
   const checkCartAvailability = (cartItems) => {
-    const bomEnabled = ingredients.length > 0 && (productSizeIngredients.length > 0 || productIngredients.length > 0);
+    const bomEnabled = (ingredients.length > 0 || materials.length > 0) && (productSizeIngredients.length > 0 || productIngredients.length > 0);
     if (!bomEnabled) {
       const missing = [];
       const totals = new Map();
@@ -2046,8 +3081,8 @@ export function AppProvider({ children }) {
       }
 
       for (const [productId, requiredQty] of totals.entries()) {
-        const p = products.find(x => x.id === productId);
-        const available = p ? Number(p.stock || 0) : 0;
+        const p = products.find(x => sameId(x.id, productId));
+        const available = p ? (p.stock == null ? Infinity : Number(p.stock || 0)) : 0;
         if (available < requiredQty) {
           missing.push({
             product_id: productId,
@@ -2061,57 +3096,26 @@ export function AppProvider({ children }) {
       return { ok: missing.length === 0, missing };
     }
 
-    const totals = new Map();
-    for (const item of cartItems || []) {
-      const productId = item.product_id ?? item.id;
-      totals.set(productId, (totals.get(productId) || 0) + Number(item.quantity || 0));
-    }
-    for (const [productId, requiredQty] of totals.entries()) {
-      const p = products.find(x => x.id === productId);
-      if (p?.stock != null) {
-        const available = Number(p.stock || 0);
-        if (available < requiredQty) {
-          return {
-            ok: false,
-            missing: [{
-              product_id: productId,
-              name: p?.name ?? 'Unknown',
-              required: requiredQty,
-              available
-            }]
-          };
-        }
-      }
-    }
-
-    const requiredByIngredient = new Map();
-    for (const item of cartItems || []) {
-      const productId = Number(item.product_id ?? item.id);
-      const qty = Number(item.quantity || 0);
-      const sizeId = Number(item.product_size_id ?? item.size_id ?? 0) || null;
-      const sizeBom = sizeId ? (sizeIngredientsBySizeId.get(sizeId) || []) : [];
-      const bom = sizeBom.length > 0 ? sizeBom : (productBomByProductId.get(productId) || []);
-      for (const row of bom) {
-        const key = row.ingredient_id;
-        requiredByIngredient.set(key, (requiredByIngredient.get(key) || 0) + Number(row.quantity || 0) * qty);
-      }
-      for (const a of item.addons || item.displayAddons || []) {
-        const addonId = Number(a.addon_id ?? a.id);
-        const perUnitQty = Number(a.quantity || 1);
-        const addonBom = addonBomByAddonId.get(addonId) || [];
-        for (const row of addonBom) {
-          const key = row.ingredient_id;
-          requiredByIngredient.set(
-            key,
-            (requiredByIngredient.get(key) || 0) + Number(row.quantity || 0) * perUnitQty * qty
-          );
-        }
+    const { requiredIngredients, requiredMaterials, requiredProductStock } = buildRequiredBOMFromCart(cartItems);
+    for (const [productId, requiredQty] of requiredProductStock.entries()) {
+      const p = products.find(x => sameId(x.id, productId));
+      const available = p ? Number(p.stock || 0) : 0;
+      if (available < requiredQty) {
+        return {
+          ok: false,
+          missing: [{
+            product_id: productId,
+            name: p?.name ?? 'Unknown',
+            required: requiredQty,
+            available
+          }]
+        };
       }
     }
 
     const missing = [];
-    for (const [ingredientId, required] of requiredByIngredient.entries()) {
-      const ing = ingredientById.get(ingredientId);
+    for (const [ingredientId, required] of requiredIngredients.entries()) {
+      const ing = ingredientById.get(String(ingredientId));
       const available = Number(ing?.quantity || 0);
       if (available < required) {
         missing.push({
@@ -2123,6 +3127,19 @@ export function AppProvider({ children }) {
         });
       }
     }
+    for (const [materialId, required] of requiredMaterials.entries()) {
+      const m = materialById.get(String(materialId));
+      const available = Number(m?.quantity || 0);
+      if (available < required) {
+        missing.push({
+          material_id: materialId,
+          name: m?.name ?? 'Unknown',
+          required,
+          available,
+          unit: m?.unit ?? null
+        });
+      }
+    }
 
     return { ok: missing.length === 0, missing };
   };
@@ -2131,7 +3148,12 @@ export function AppProvider({ children }) {
     const cartItems = items || [];
     if (cartItems.length === 0) return { ok: false };
 
-    const bomMode = ingredients.length > 0 && (productSizeIngredients.length > 0 || productIngredients.length > 0);
+    if (storeSettings?.is_open === false) {
+      addNotification('Store is closed. Open the store to process orders.', 'error');
+      return { ok: false, reason: 'store_closed' };
+    }
+
+    const bomMode = (ingredients.length > 0 || materials.length > 0) && (productSizeIngredients.length > 0 || productIngredients.length > 0);
     if (bomMode) {
       const cartCheck = checkCartAvailability(cartItems);
       if (!cartCheck.ok) {
@@ -2140,8 +3162,12 @@ export function AppProvider({ children }) {
       }
     } else {
       for (const line of cartItems) {
-        const p = products.find(x => x.id === line.product_id);
-        if (!p || Number(p.stock) < Number(line.quantity)) {
+        const p = products.find(x => sameId(x.id, line.product_id));
+        if (!p) {
+          addNotification(`Out of stock: ${line.name}`, 'error');
+          return { ok: false };
+        }
+        if (p.stock != null && Number(p.stock) < Number(line.quantity)) {
           addNotification(`Out of stock: ${line.name}`, 'error');
           return { ok: false };
         }
@@ -2153,7 +3179,7 @@ export function AppProvider({ children }) {
       const qty = Number(line.quantity || 0);
       const unitBase = Number(line.price || 0);
       const addonsTotalPerUnit = (line.addons || []).reduce((sum, a) => {
-        const unit = Number(a.unit_price ?? addonById.get(Number(a.addon_id))?.price_per_unit ?? 0);
+        const unit = Number(a.unit_price ?? addonById.get(String(a.addon_id))?.price_per_unit ?? 0);
         const q = Number(a.quantity || 0);
         return sum + unit * q;
       }, 0);
@@ -2169,7 +3195,7 @@ export function AppProvider({ children }) {
     const cashReceivedNum = normalizedPayment === 'Cash' ? Number(cashReceived || 0) : null;
     const changeAmount = normalizedPayment === 'Cash' ? Math.max(0, Number(cashReceivedNum || 0) - Number(totalAmount || 0)) : null;
 
-    if (!isSupabaseConfigured) {
+    const commitLocalSale = async ({ warn = false } = {}) => {
       const fakeSale = {
         id: Date.now(),
         created_at: new Date().toISOString(),
@@ -2185,16 +3211,45 @@ export function AppProvider({ children }) {
           price: l.price,
           subtotal: Number(l.price) * Number(l.quantity),
           addons: (l.addons || []).map(a => ({
-            name: addonById.get(Number(a.addon_id))?.name ?? 'Addon',
+            name: addonById.get(String(a.addon_id))?.name ?? 'Addon',
             quantity: Number(a.quantity || 0) * Number(l.quantity || 0),
             unit_price: Number(a.unit_price ?? 0),
             subtotal: Number(a.unit_price ?? 0) * Number(a.quantity || 0) * Number(l.quantity || 0)
           }))
         }))
       };
-      setSales(prev => [fakeSale, ...prev]);
+      setSales(prev => {
+        const next = [fakeSale, ...(prev || [])];
+        persistSales(next);
+        return next;
+      });
+
+      if (bomMode) {
+        const { requiredIngredients, requiredMaterials, requiredProductStock } = buildRequiredBOMFromCart(cartItems);
+        for (const [ingredientId, required] of requiredIngredients.entries()) {
+          await adjustIngredientStock({ ingredientId, change: -Number(required), reason: 'sale' });
+        }
+        for (const [materialId, required] of requiredMaterials.entries()) {
+          await adjustMaterialStock({ materialId, change: -Number(required), reason: 'sale' });
+        }
+        for (const [productId, required] of requiredProductStock.entries()) {
+          await adjustProductStock({ productId, change: -Number(required), reason: 'sale' });
+        }
+      } else {
+        for (const line of cartItems) {
+          await adjustProductStock({ productId: line.product_id, change: -Number(line.quantity), reason: 'sale' });
+        }
+      }
+
       setDailySales(prev => Number(prev || 0) + totalAmount);
+      if (warn) addNotification('Checkout saved locally (database not available).', 'warning');
+      else addNotification('Checkout successful.', 'success');
+      await logActivity({ action: `Checkout processed (${normalizedPayment})`, area: 'pos', entityType: 'sale', entityId: fakeSale.id });
       return { ok: true, sale: fakeSale };
+    };
+
+    if (!isSupabaseConfigured) {
+      return await commitLocalSale();
     }
 
     const salePayload = {
@@ -2206,56 +3261,42 @@ export function AppProvider({ children }) {
       change_amount: changeAmount
     };
 
-    let { data: saleData, error: saleErr } = await supabase.from('sales').insert([salePayload]).select();
+    let saleData = null;
+    let saleErr = null;
+    try {
+      const first = await withTimeout(supabase.from('sales').insert([salePayload]).select(), 5000);
+      saleData = first.data;
+      saleErr = first.error;
     if (saleErr && (String(saleErr.message || '').toLowerCase().includes('cash_received') || String(saleErr.message || '').toLowerCase().includes('change_amount'))) {
       const fallback = { ...salePayload };
       delete fallback.cash_received;
       delete fallback.change_amount;
-      const retry = await supabase.from('sales').insert([fallback]).select();
+        const retry = await withTimeout(supabase.from('sales').insert([fallback]).select(), 5000);
       saleData = retry.data;
       saleErr = retry.error;
     }
 
     if (saleErr || !saleData?.[0]) {
-      addNotification(saleErr?.message || 'Failed to save sale', 'error');
-      return { ok: false, error: saleErr?.message || 'Failed to save sale' };
+        return await commitLocalSale({ warn: true });
     }
 
     const saleId = saleData[0].id;
 
-    const requiredByIngredient = new Map();
+    let requiredIngredients = new Map();
+    let requiredMaterials = new Map();
+    let requiredProductStock = new Map();
     if (bomMode) {
-      for (const item of cartItems) {
-        const productId = Number(item.product_id);
-        const qty = Number(item.quantity || 0);
-        const sizeId = Number(item.product_size_id ?? item.size_id ?? 0) || null;
-        const sizeBom = sizeId ? (sizeIngredientsBySizeId.get(sizeId) || []) : [];
-        const bom = sizeBom.length > 0 ? sizeBom : (productBomByProductId.get(productId) || []);
-        for (const row of bom) {
-          requiredByIngredient.set(
-            row.ingredient_id,
-            (requiredByIngredient.get(row.ingredient_id) || 0) + Number(row.quantity || 0) * qty
-          );
-        }
-        for (const a of item.addons || []) {
-          const addonId = Number(a.addon_id);
-          const perUnitQty = Number(a.quantity || 0);
-          const addonBom = addonBomByAddonId.get(addonId) || [];
-          for (const row of addonBom) {
-            requiredByIngredient.set(
-              row.ingredient_id,
-              (requiredByIngredient.get(row.ingredient_id) || 0) + Number(row.quantity || 0) * perUnitQty * qty
-            );
-          }
-        }
-      }
+      const required = buildRequiredBOMFromCart(cartItems);
+      requiredIngredients = required.requiredIngredients;
+      requiredMaterials = required.requiredMaterials;
+      requiredProductStock = required.requiredProductStock;
     }
 
     for (const item of cartItems) {
       const qty = Number(item.quantity || 0);
       const unitBase = Number(item.price || 0);
       const lineAddonTotal = (item.addons || []).reduce((sum, a) => {
-        const unit = Number(a.unit_price ?? addonById.get(Number(a.addon_id))?.price_per_unit ?? 0);
+        const unit = Number(a.unit_price ?? addonById.get(String(a.addon_id))?.price_per_unit ?? 0);
         const q = Number(a.quantity || 0);
         return sum + unit * q;
       }, 0);
@@ -2285,8 +3326,7 @@ export function AppProvider({ children }) {
       }
 
       if (trxErr || !trxData?.[0]) {
-        addNotification(trxErr?.message || 'Failed to save sale items', 'error');
-        return { ok: false, error: trxErr?.message || 'Failed to save sale items' };
+          return await commitLocalSale({ warn: true });
       }
 
       const trxId = trxData[0].id;
@@ -2295,10 +3335,10 @@ export function AppProvider({ children }) {
         .map(a => {
           const perUnitQty = Math.floor(Number(a.quantity || 0));
           const totalQty = Math.floor(perUnitQty * qty);
-          const unit = Number(a.unit_price ?? addonById.get(Number(a.addon_id))?.price_per_unit ?? 0);
+          const unit = Number(a.unit_price ?? addonById.get(String(a.addon_id))?.price_per_unit ?? 0);
           return {
             transaction_id: trxId,
-            addon_id: Number(a.addon_id),
+            addon_id: a.addon_id,
             quantity: totalQty,
             unit_price: unit,
             subtotal: unit * totalQty
@@ -2308,27 +3348,37 @@ export function AppProvider({ children }) {
       if (addonRows.length > 0) {
         const { error: addErr } = await supabase.from('transaction_addons').insert(addonRows);
         if (addErr) {
-          addNotification(addErr?.message || 'Failed to save add-ons', 'error');
-          return { ok: false, error: addErr?.message || 'Failed to save add-ons' };
+            return await commitLocalSale({ warn: true });
         }
       }
     }
 
     if (bomMode) {
-      for (const [ingredientId, required] of requiredByIngredient.entries()) {
+      for (const [ingredientId, required] of requiredIngredients.entries()) {
         const ok = await adjustIngredientStock({ ingredientId, change: -Number(required), reason: 'sale' });
         if (!ok.ok) {
-          addNotification(ok.error || 'Failed to deduct ingredient inventory', 'error');
-          return { ok: false, error: ok.error || 'Failed to deduct ingredient inventory' };
+            return await commitLocalSale({ warn: true });
+        }
+      }
+      for (const [materialId, required] of requiredMaterials.entries()) {
+        const ok = await adjustMaterialStock({ materialId, change: -Number(required), reason: 'sale' });
+        if (!ok.ok) {
+          return await commitLocalSale({ warn: true });
+        }
+      }
+      for (const [productId, required] of requiredProductStock.entries()) {
+        const ok = await adjustProductStock({ productId, change: -Number(required), reason: 'sale' });
+        if (!ok.ok) {
+          return await commitLocalSale({ warn: true });
         }
       }
       await fetchIngredients();
+      await fetchMaterials();
     } else {
       for (const line of cartItems) {
         const ok = await adjustProductStock({ productId: line.product_id, change: -Number(line.quantity), reason: 'sale' });
         if (!ok.ok) {
-          addNotification(ok.error || 'Failed to deduct product stock', 'error');
-          return { ok: false, error: ok.error || 'Failed to deduct product stock' };
+            return await commitLocalSale({ warn: true });
         }
       }
     }
@@ -2336,7 +3386,11 @@ export function AppProvider({ children }) {
     await refreshDailySales();
     await fetchSalesReport({ days: 30 });
     await fetchSales();
+    addNotification('Checkout successful.', 'success');
     return { ok: true, sale: { id: saleId } };
+    } catch {
+      return await commitLocalSale({ warn: true });
+    }
   };
 
   const value = {
@@ -2344,6 +3398,7 @@ export function AppProvider({ children }) {
     addToCart,
     removeFromCart,
     updateQuantity,
+    updateCartItem,
     clearCart,
     cartTotal,
     user: normalizedUser,
@@ -2359,6 +3414,7 @@ export function AppProvider({ children }) {
     salesReport,
     notifications,
     addNotification,
+    dismissNotificationToast,
     markNotificationRead,
     deleteNotification,
     markAllNotificationsRead,
@@ -2393,6 +3449,8 @@ export function AppProvider({ children }) {
     ingredients,
     ingredientCategories,
     addIngredientCategory,
+    renameIngredientCategory,
+    deleteIngredientCategory,
     fetchIngredients,
     createIngredient,
     updateIngredient,
@@ -2401,6 +3459,8 @@ export function AppProvider({ children }) {
     materials,
     materialCategories,
     addMaterialCategory,
+    renameMaterialCategory,
+    deleteMaterialCategory,
     fetchMaterials,
     createMaterial,
     updateMaterial,
@@ -2409,6 +3469,8 @@ export function AppProvider({ children }) {
     addons,
     addonCategories,
     addAddonCategory,
+    renameAddonCategory,
+    deleteAddonCategory,
     fetchAddons,
     createAddon,
     updateAddon,

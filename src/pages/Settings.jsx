@@ -1,100 +1,117 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Clock, Save } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { DoorClosed, DoorOpen, Eye, EyeOff, Loader2, Lock, Power, User, X } from 'lucide-react';
 import { useApp } from '../store/AppContext';
-
-const dayOptions = [
-  { value: 0, label: 'Sun' },
-  { value: 1, label: 'Mon' },
-  { value: 2, label: 'Tue' },
-  { value: 3, label: 'Wed' },
-  { value: 4, label: 'Thu' },
-  { value: 5, label: 'Fri' },
-  { value: 6, label: 'Sat' }
-];
+import { downloadStructuredPdf, pdfFormats } from '../lib/exportPdf';
 
 export default function Settings() {
-  const { storeSettings, updateStoreSettings } = useApp();
-  const [openTime, setOpenTime] = useState('09:00');
-  const [closeTime, setCloseTime] = useState('21:00');
-  const [daysOpen, setDaysOpen] = useState([0, 1, 2, 3, 4, 5, 6]);
-  const [dayOverrides, setDayOverrides] = useState({});
+  const { storeSettings, updateStoreSettings, user, verifyCredentials, sales, refreshDailySales } = useApp();
   const [isSaving, setIsSaving] = useState(false);
+  const [reauthOpen, setReauthOpen] = useState(false);
+  const [reauthAccountId, setReauthAccountId] = useState('');
+  const [reauthPassword, setReauthPassword] = useState('');
+  const [reauthError, setReauthError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [pendingNextOpen, setPendingNextOpen] = useState(true);
 
-  useEffect(() => {
-    if (!storeSettings) return;
-    setOpenTime(storeSettings.open_time || '09:00');
-    setCloseTime(storeSettings.close_time || '21:00');
-    setDaysOpen(Array.isArray(storeSettings.days_open) && storeSettings.days_open.length > 0 ? storeSettings.days_open : [0, 1, 2, 3, 4, 5, 6]);
-    setDayOverrides(storeSettings.day_overrides && typeof storeSettings.day_overrides === 'object' ? storeSettings.day_overrides : {});
-  }, [storeSettings]);
+  const isOpen = storeSettings?.is_open !== false;
+  const openedAt = useMemo(() => {
+    const s = storeSettings?.opened_at ? String(storeSettings.opened_at) : '';
+    if (!s) return '';
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleString();
+  }, [storeSettings?.opened_at]);
+  const closedAt = useMemo(() => {
+    const s = storeSettings?.closed_at ? String(storeSettings.closed_at) : '';
+    if (!s) return '';
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleString();
+  }, [storeSettings?.closed_at]);
 
-  const normalizedDays = useMemo(() => {
-    const set = new Set((daysOpen || []).map(n => Number(n)).filter(n => Number.isFinite(n)));
-    return Array.from(set).sort((a, b) => a - b);
-  }, [daysOpen]);
-
-  const normalizedOverrides = useMemo(() => {
-    const out = {};
-    for (const [k, v] of Object.entries(dayOverrides || {})) {
-      const day = Number(k);
-      if (!Number.isFinite(day)) continue;
-      const open_time = v?.open_time ? String(v.open_time) : openTime;
-      const close_time = v?.close_time ? String(v.close_time) : closeTime;
-      out[String(day)] = { open_time, close_time };
-    }
-    return out;
-  }, [dayOverrides, openTime, closeTime]);
-
-  const toggleDay = (v) => {
-    setDaysOpen(prev => {
-      const set = new Set((prev || []).map(n => Number(n)).filter(n => Number.isFinite(n)));
-      if (set.has(v)) set.delete(v);
-      else set.add(v);
-      return Array.from(set);
-    });
-    setDayOverrides(prev => {
-      const next = { ...(prev || {}) };
-      if (!normalizedDays.includes(v)) return next;
-      delete next[String(v)];
-      return next;
-    });
+  const requestToggleStore = () => {
+    const account = user?.account_id || user?.email || '';
+    setPendingNextOpen(!isOpen);
+    setReauthAccountId(String(account || ''));
+    setReauthPassword('');
+    setReauthError('');
+    setShowPassword(false);
+    setReauthOpen(true);
   };
 
-  const toggleCustom = (day) => {
-    setDayOverrides(prev => {
-      const next = { ...(prev || {}) };
-      const key = String(day);
-      if (next[key]) {
-        delete next[key];
-      } else {
-        next[key] = { open_time: openTime, close_time: closeTime };
-      }
-      return next;
-    });
-  };
-
-  const setOverrideTime = (day, field, value) => {
-    setDayOverrides(prev => {
-      const key = String(day);
-      const base = prev?.[key] || { open_time: openTime, close_time: closeTime };
-      return { ...(prev || {}), [key]: { ...base, [field]: value } };
-    });
-  };
-
-  const onSave = async (e) => {
-    e.preventDefault();
+  const confirmToggleStore = async (e) => {
+    e?.preventDefault?.();
     if (isSaving) return;
-    if (!openTime || !closeTime) return;
-    if (normalizedDays.length === 0) return;
     setIsSaving(true);
     try {
-      const allowed = new Set(normalizedDays.map(n => String(n)));
-      const day_overrides = {};
-      for (const [k, v] of Object.entries(normalizedOverrides || {})) {
-        if (!allowed.has(String(Number(k)))) continue;
-        day_overrides[String(Number(k))] = { open_time: v.open_time, close_time: v.close_time };
+      const result = await verifyCredentials({ accountId: reauthAccountId, password: reauthPassword });
+      if (!result?.ok) {
+        setReauthError(result?.message || 'Invalid credentials.');
+        return;
       }
-      await updateStoreSettings({ open_time: openTime, close_time: closeTime, days_open: normalizedDays, day_overrides });
+      const now = new Date().toISOString();
+      if (pendingNextOpen) {
+        await updateStoreSettings({ is_open: true, opened_at: now, closed_at: null });
+        await refreshDailySales();
+      } else {
+        const openedIso = storeSettings?.opened_at ? String(storeSettings.opened_at) : null;
+        const start = openedIso ? new Date(openedIso) : null;
+        const end = new Date(now);
+        const startOk = start && !Number.isNaN(start.getTime()) ? start : null;
+
+        const reportStart = startOk || new Date(end);
+        if (!startOk) reportStart.setHours(0, 0, 0, 0);
+
+        const reportSales = (sales || [])
+          .filter(s => {
+            const d = s?.created_at ? new Date(s.created_at) : null;
+            if (!d || Number.isNaN(d.getTime())) return false;
+            return d >= reportStart && d <= end;
+          })
+          .sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+
+        const total = reportSales.reduce((sum, s) => sum + Number(s.total_amount ?? s.total ?? 0), 0);
+        const txCount = reportSales.length;
+        const avg = txCount > 0 ? total / txCount : 0;
+
+        await updateStoreSettings({ is_open: false, closed_at: now });
+        await refreshDailySales();
+
+        downloadStructuredPdf({
+          filename: `ZwitBlakTea-daily_report_${end.toISOString().slice(0, 10)}`,
+          title: 'Daily Report',
+          subtitle: 'ZwitBlakTea',
+          meta: [
+            `Period Start: ${reportStart.toISOString().replace('T', ' ').slice(0, 19)}`,
+            `Period End: ${end.toISOString().replace('T', ' ').slice(0, 19)}`,
+            `Generated: ${new Date().toLocaleString()}`
+          ],
+          sections: [
+            {
+              title: 'Summary',
+              columns: ['Total Sales', 'Total Transactions', 'Avg Transaction'],
+              rows: [[
+                pdfFormats.formatPeso(total || 0),
+                Number(txCount || 0).toLocaleString(),
+                pdfFormats.formatPeso(avg || 0)
+              ]]
+            },
+            {
+              title: 'Sales',
+              columns: ['Date/Time', 'Sale ID', 'Cashier', 'Payment', 'Total'],
+              columnStyles: { 4: { halign: 'right' } },
+              rows: reportSales.map(s => ([
+                s.created_at ? new Date(s.created_at).toLocaleString() : '',
+                String(s.id ?? ''),
+                String(s.cashier || ''),
+                String(s.payment_method || s.paymentMethod || ''),
+                pdfFormats.formatPeso(s.total_amount ?? s.total ?? 0)
+              ]))
+            }
+          ]
+        });
+      }
+      setReauthOpen(false);
     } finally {
       setIsSaving(false);
     }
@@ -105,120 +122,147 @@ export default function Settings() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Settings</h1>
-          <p className="text-slate-500 text-sm">Configure store operational hours.</p>
+          <p className="text-slate-500 text-sm">Open or close the store for transactions.</p>
         </div>
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="p-6 border-b border-slate-200 bg-slate-50/50 flex items-center gap-2">
-          <Clock size={18} className="text-slate-500" />
-          <div className="text-sm font-bold text-slate-900 uppercase tracking-wide">Operational Hours</div>
+          <Power size={18} className="text-slate-500" />
+          <div className="text-sm font-bold text-slate-900 uppercase tracking-wide">Store Status</div>
         </div>
 
-        <form onSubmit={onSave} className="p-6 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <label className="text-sm font-bold text-slate-700">Opening Time</label>
-              <input
-                required
-                type="time"
-                value={openTime}
-                onChange={(e) => setOpenTime(e.target.value)}
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all font-bold"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-bold text-slate-700">Closing Time</label>
-              <input
-                required
-                type="time"
-                value={closeTime}
-                onChange={(e) => setCloseTime(e.target.value)}
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all font-bold"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <div className="text-sm font-bold text-slate-700">Per-day Schedule</div>
-            <div className="rounded-2xl border border-slate-200 overflow-hidden">
-              <div className="grid grid-cols-12 gap-3 px-4 py-3 bg-slate-50/60 border-b border-slate-200 text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                <div className="col-span-2">Day</div>
-                <div className="col-span-2">Open</div>
-                <div className="col-span-3">Custom</div>
-                <div className="col-span-2">Open Time</div>
-                <div className="col-span-3">Close Time</div>
+        <div className="p-6 space-y-6">
+          <div className="rounded-3xl border border-slate-200 bg-white p-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className={`h-12 w-12 rounded-2xl flex items-center justify-center ${isOpen ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                  {isOpen ? <DoorOpen size={22} /> : <DoorClosed size={22} />}
+                </div>
+                <div>
+                  <div className="text-lg font-black text-slate-900">{isOpen ? 'OPEN' : 'CLOSED'}</div>
+                  <div className="text-sm text-slate-500 font-semibold">
+                    {isOpen ? (openedAt ? `Opened: ${openedAt}` : 'Opened: —') : (closedAt ? `Closed: ${closedAt}` : 'Closed: —')}
+                  </div>
+                </div>
               </div>
-              <div className="divide-y divide-slate-100">
-                {dayOptions.map(d => {
-                  const isOpen = normalizedDays.includes(d.value);
-                  const key = String(d.value);
-                  const hasCustom = Boolean(normalizedOverrides?.[key]);
-                  const currentOpen = hasCustom ? normalizedOverrides[key].open_time : openTime;
-                  const currentClose = hasCustom ? normalizedOverrides[key].close_time : closeTime;
-                  return (
-                    <div key={d.value} className="grid grid-cols-12 gap-3 px-4 py-4 items-center">
-                      <div className="col-span-2 font-bold text-slate-900">{d.label}</div>
-                      <div className="col-span-2">
-                        <button
-                          type="button"
-                          onClick={() => toggleDay(d.value)}
-                          className={`px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-wide border transition-all ${
-                            isOpen ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
-                          }`}
-                        >
-                          {isOpen ? 'Open' : 'Closed'}
-                        </button>
-                      </div>
-                      <div className="col-span-3">
-                        <button
-                          type="button"
-                          disabled={!isOpen}
-                          onClick={() => toggleCustom(d.value)}
-                          className={`px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-wide border transition-all disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-200 ${
-                            hasCustom ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
-                          }`}
-                        >
-                          {hasCustom ? 'Custom On' : 'Custom Off'}
-                        </button>
-                      </div>
-                      <div className="col-span-2">
-                        <input
-                          type="time"
-                          value={currentOpen}
-                          disabled={!isOpen || !hasCustom}
-                          onChange={(e) => setOverrideTime(d.value, 'open_time', e.target.value)}
-                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all font-bold disabled:bg-slate-100 disabled:text-slate-400"
-                        />
-                      </div>
-                      <div className="col-span-3">
-                        <input
-                          type="time"
-                          value={currentClose}
-                          disabled={!isOpen || !hasCustom}
-                          onChange={(e) => setOverrideTime(d.value, 'close_time', e.target.value)}
-                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all font-bold disabled:bg-slate-100 disabled:text-slate-400"
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+
+              <button
+                type="button"
+                disabled={isSaving}
+                onClick={requestToggleStore}
+                className={`px-5 py-3 rounded-2xl font-black uppercase tracking-wide text-xs transition-all shadow-sm flex items-center gap-2 disabled:bg-slate-200 disabled:text-slate-500 ${
+                  isOpen
+                    ? 'bg-rose-600 text-white hover:bg-rose-700 shadow-rose-200'
+                    : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-200'
+                }`}
+              >
+                {isSaving ? <Loader2 size={16} className="animate-spin" /> : null}
+                {isOpen ? 'Close Store' : 'Open Store'}
+              </button>
             </div>
           </div>
-
-          <div className="flex justify-end">
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="btn btn-primary flex items-center gap-2 disabled:bg-slate-200 disabled:shadow-none"
-            >
-              <Save size={18} />
-              {isSaving ? 'Saving...' : 'Save'}
-            </button>
-          </div>
-        </form>
+        </div>
       </div>
+
+      {reauthOpen ? (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+          <div
+            onClick={() => setReauthOpen(false)}
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+          />
+          <div className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <h3 className="text-lg font-bold text-slate-900">
+                {pendingNextOpen ? 'Open Store' : 'Close Store'} Confirmation
+              </h3>
+              <button
+                type="button"
+                onClick={() => setReauthOpen(false)}
+                className="p-2 hover:bg-slate-200 rounded-full text-slate-400 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={confirmToggleStore} className="p-6 space-y-4">
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 font-semibold">
+                This action affects daily reports. Please confirm with your password.
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-1">Account ID</label>
+                <div className="relative">
+                  <User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+                  <input
+                    type="text"
+                    value={reauthAccountId}
+                    onChange={(e) => setReauthAccountId(e.target.value)}
+                    className="block w-full pl-12 pr-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl text-slate-900 font-bold placeholder:text-slate-300 focus:outline-none focus:border-primary-500 focus:bg-white transition-all tracking-wide"
+                    disabled={isSaving}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wide ml-1">Password</label>
+                <div className="relative">
+                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={reauthPassword}
+                    onChange={(e) => {
+                      setReauthPassword(e.target.value);
+                      if (reauthError) setReauthError('');
+                    }}
+                    className="block w-full pl-12 pr-12 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl text-slate-900 font-bold placeholder:text-slate-300 focus:outline-none focus:border-primary-500 focus:bg-white transition-all tracking-wide"
+                    placeholder="Enter password"
+                    disabled={isSaving}
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(v => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    disabled={isSaving}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </div>
+
+              {reauthError ? (
+                <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 font-semibold">
+                  {reauthError}
+                </div>
+              ) : null}
+
+              <div className="pt-2 flex gap-3">
+                <button
+                  type="button"
+                  disabled={isSaving}
+                  onClick={() => setReauthOpen(false)}
+                  className="flex-1 px-4 py-3 border border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition-all disabled:bg-slate-100 disabled:text-slate-400"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSaving}
+                  className={`flex-1 px-4 py-3 text-white font-bold rounded-xl transition-all disabled:bg-slate-200 disabled:shadow-none flex items-center justify-center gap-2 ${
+                    pendingNextOpen ? 'bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-200' : 'bg-rose-600 hover:bg-rose-700 shadow-lg shadow-rose-200'
+                  }`}
+                >
+                  {isSaving ? <Loader2 size={16} className="animate-spin" /> : null}
+                  {pendingNextOpen ? 'Open Store' : 'Close Store'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

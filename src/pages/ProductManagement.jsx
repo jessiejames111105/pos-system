@@ -3,16 +3,15 @@ import {
   Plus, 
   Trash2, 
   Package, 
-  Layers, 
   Settings2, 
   AlertTriangle,
-  Filter,
   X,
   Save,
   Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useApp } from '../store/AppContext';
+import SearchableSelect from '../components/SearchableSelect';
 
 const ProductManagement = () => {
   const {
@@ -22,6 +21,7 @@ const ProductManagement = () => {
     addons,
     productSizes,
     productSizeIngredients,
+    productIngredients,
     productAddons,
     createCategory,
     deleteCategory,
@@ -54,7 +54,7 @@ const ProductManagement = () => {
   const handleAddProduct = () => {
     setEditingProduct(null);
     setProductForm(initialProductState);
-    setSizes([{ name: 'Standard', price: '', bomLines: [] }]);
+    setSizes([{ name: 'Standard', price: '', bomLines: [{ ingredient_id: '', quantity: '' }] }]);
     setSelectedAddonIds([]);
     setIsModalOpen(true);
   };
@@ -95,10 +95,32 @@ const ProductManagement = () => {
     });
   }, [products]);
 
+  const ingredientGroups = useMemo(() => {
+    const list = ingredients || [];
+    const isMaterial = (ing) => {
+      const unit = String(ing?.unit || '').trim().toLowerCase();
+      return unit === 'pcs' || unit === 'pc' || unit === 'piece' || unit === 'pieces';
+    };
+    return {
+      materials: list.filter(isMaterial),
+      ingredients: list.filter(i => !isMaterial(i))
+    };
+  }, [ingredients]);
+
+  const ingredientOptions = useMemo(() => {
+    return [
+      ...ingredientGroups.ingredients.map(ing => ({ value: ing.id, label: ing.name, group: 'Ingredients' })),
+      ...ingredientGroups.materials.map(ing => ({ value: ing.id, label: ing.name, group: 'Materials' }))
+    ];
+  }, [ingredientGroups.ingredients, ingredientGroups.materials]);
+
+  const addonOptions = useMemo(() => {
+    return (addons || []).map(a => ({ value: a.id, label: a.name, group: 'Add-ons' }));
+  }, [addons]);
+
   const filteredProducts = useMemo(() => {
     if (categoryFilter === 'all') return productsSorted;
-    const catId = Number(categoryFilter);
-    return productsSorted.filter(p => Number(p.category_id) === catId);
+    return productsSorted.filter(p => String(p.category_id || '') === String(categoryFilter));
   }, [productsSorted, categoryFilter]);
 
   const handleEditProduct = (product) => {
@@ -109,7 +131,7 @@ const ProductManagement = () => {
       category: product.categoryName || ''
     });
     const existingSizes = (productSizes || [])
-      .filter(s => Number(s.product_id) === Number(product.id))
+      .filter(s => String(s.product_id) === String(product.id))
       .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || String(a.name).localeCompare(String(b.name)));
     if (existingSizes.length > 0) {
       setSizes(existingSizes.map(sz => ({
@@ -117,14 +139,14 @@ const ProductManagement = () => {
         name: sz.name,
         price: sz.price == null ? '' : String(sz.price),
         bomLines: (productSizeIngredients || [])
-          .filter(r => Number(r.product_size_id) === Number(sz.id))
+          .filter(r => String(r.product_size_id) === String(sz.id))
           .map(r => ({ ingredient_id: r.ingredient_id == null ? '' : String(r.ingredient_id), quantity: r.quantity == null ? '' : String(r.quantity) }))
       })));
     } else {
-      setSizes([{ name: 'Standard', price: product.price ?? '', bomLines: [] }]);
+      setSizes([{ name: 'Standard', price: product.price ?? '', bomLines: [{ ingredient_id: '', quantity: '' }] }]);
     }
     const existingAddonIds = (productAddons || [])
-      .filter(r => Number(r.product_id) === Number(product.id))
+      .filter(r => String(r.product_id) === String(product.id))
       .map(r => r.addon_id);
     setSelectedAddonIds(existingAddonIds);
     setIsModalOpen(true);
@@ -152,15 +174,19 @@ const ProductManagement = () => {
     try {
       let productId = editingProduct?.id ?? null;
       if (editingProduct) {
-        await updateProduct(editingProduct.id, payload);
+        const res = await updateProduct(editingProduct.id, payload);
+        if (!res?.ok) return;
       } else {
         const res = await createProduct(payload);
+        if (!res?.ok) return;
         productId = res?.product?.id ?? null;
       }
 
       if (productId) {
-        await setProductSizesWithBOM(productId, sizes);
-        await setProductAddonsForProduct(productId, selectedAddonIds);
+        const sizesRes = await setProductSizesWithBOM(productId, sizes);
+        if (!sizesRes?.ok) return;
+        const addonsRes = await setProductAddonsForProduct(productId, selectedAddonIds);
+        if (!addonsRes?.ok) return;
       }
 
       setIsModalOpen(false);
@@ -191,14 +217,12 @@ const ProductManagement = () => {
             onClick={handleAddCategory}
             className="btn bg-white border border-slate-200 text-slate-700 flex items-center gap-2 hover:bg-slate-50"
           >
-            <Layers size={18} />
             Add Category
           </button>
           <button 
             onClick={handleAddProduct}
             className="btn btn-primary flex items-center gap-2"
           >
-            <Plus size={18} />
             Add Product
           </button>
         </div>
@@ -231,12 +255,9 @@ const ProductManagement = () => {
             {categoryCards.map(cat => (
               <div key={cat.id} className="card p-5 group hover:border-primary-300 transition-all">
                 <div className="flex items-center justify-between mb-4">
-                  <div className="p-2.5 rounded-xl bg-slate-50 text-slate-600 group-hover:bg-primary-50 group-hover:text-primary-600 transition-colors">
-                    <Layers size={20} />
-                  </div>
                   <button
                     onClick={() => setDeleteTarget({ kind: 'category', id: cat.id, name: cat.name })}
-                    className="text-slate-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
                   >
                     <Trash2 size={16} />
                   </button>
@@ -250,7 +271,6 @@ const ProductManagement = () => {
           <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
             <div className="p-4 border-b border-slate-200 bg-slate-50/50 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 text-slate-400">
-                <Filter size={16} />
                 <span className="text-[10px] font-bold uppercase tracking-wide">Filter</span>
               </div>
               <select
@@ -277,16 +297,13 @@ const ProductManagement = () => {
                 {filteredProducts.map(product => (
                   <tr key={product.id} className="hover:bg-slate-50/50 transition-colors group">
                     <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-lg bg-slate-100 flex items-center justify-center text-xl">📦</div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-slate-900">{product.name}</span>
-                          {product?.stock != null && Number(product.stock || 0) <= 0 ? (
-                            <span className="inline-flex w-fit rounded-lg bg-slate-200 px-2 py-1 text-[10px] font-bold uppercase tracking-tight text-slate-600">
-                              No Stock
-                            </span>
-                          ) : null}
-                        </div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-slate-900">{product.name}</span>
+                        {product?.stock != null && Number(product.stock || 0) <= 0 ? (
+                          <span className="inline-flex w-fit rounded-lg bg-slate-200 px-2 py-1 text-[10px] font-bold uppercase tracking-tight text-slate-600">
+                            No Stock
+                          </span>
+                        ) : null}
                       </div>
                     </td>
                     <td className="px-6 py-4">
@@ -341,8 +358,8 @@ const ProductManagement = () => {
               {/* Header */}
               <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-white sticky top-0 z-10">
                 <div>
-                  <h2 className="text-xl font-bold text-slate-900">Add New Product</h2>
-                  <p className="text-sm text-slate-500">Complete the details below to create your product.</p>
+                  <h2 className="text-xl font-bold text-slate-900">{editingProduct ? 'Edit Product' : 'Add New Product'}</h2>
+                  <p className="text-sm text-slate-500">Complete the details below to save your product.</p>
                 </div>
                 <button 
                   onClick={() => setIsModalOpen(false)}
@@ -391,11 +408,11 @@ const ProductManagement = () => {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-primary-600 font-bold uppercase tracking-wider text-xs">
                       <Package size={14} />
-                      Ingredients (Per Size)
+                      Ingredients & Materials (Per Size)
                     </div>
                     <button
                       type="button"
-                      onClick={() => setSizes(prev => [...prev, { name: '', price: '', bomLines: [] }])}
+                      onClick={() => setSizes(prev => [...prev, { name: '', price: '', bomLines: [{ ingredient_id: '', quantity: '' }] }])}
                       className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all flex items-center gap-2"
                     >
                       <Plus size={16} />
@@ -438,7 +455,7 @@ const ProductManagement = () => {
                               className="px-4 py-2 rounded-xl text-xs font-bold bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 transition-all flex items-center gap-2"
                             >
                               <Plus size={16} />
-                              Add Ingredient
+                              Add Item
                             </button>
                             <button
                               type="button"
@@ -454,23 +471,19 @@ const ProductManagement = () => {
                           {(size.bomLines || []).map((line, idx) => (
                             <div key={idx} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
                               <div className="md:col-span-7">
-                                <select
-                                  className="select-system w-full"
+                                <SearchableSelect
                                   value={line.ingredient_id}
-                                  onChange={(e) => {
-                                    const v = e.target.value;
+                                  options={ingredientOptions}
+                                  placeholder="Type to search..."
+                                  onChange={(v) => {
+                                    const nextId = v === '' ? '' : Number(v);
                                     setSizes(prev => prev.map((s, i) => {
                                       if (i !== sizeIdx) return s;
-                                      const nextLines = (s.bomLines || []).map((x, j) => j === idx ? { ...x, ingredient_id: v } : x);
+                                      const nextLines = (s.bomLines || []).map((x, j) => j === idx ? { ...x, ingredient_id: nextId } : x);
                                       return { ...s, bomLines: nextLines };
                                     }));
                                   }}
-                                >
-                                  <option value="">Select ingredient</option>
-                                  {ingredients.map(ing => (
-                                    <option key={ing.id} value={ing.id}>{ing.name}</option>
-                                  ))}
-                                </select>
+                                />
                               </div>
                               <div className="md:col-span-4">
                                 <input
@@ -505,9 +518,9 @@ const ProductManagement = () => {
                               </div>
                             </div>
                           ))}
-                          {(size.bomLines || []).length === 0 && (
+                          {(size.bomLines || []).filter(l => String(l?.ingredient_id || '').trim() !== '').length === 0 && (
                             <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-slate-500">
-                              No ingredients for this size yet.
+                              No ingredients/materials for this size yet.
                             </div>
                           )}
                         </div>
@@ -526,6 +539,17 @@ const ProductManagement = () => {
                     <Package size={14} />
                     Available Add-ons
                   </div>
+                  <SearchableSelect
+                    value=""
+                    options={addonOptions}
+                    placeholder="Type add-on name..."
+                    onChange={(v) => {
+                      const id = v === '' ? null : Number(v);
+                      if (!id) return;
+                      const checked = selectedAddonIds.includes(id);
+                      setSelectedAddonIds(prev => checked ? prev.filter(x => x !== id) : [...prev, id]);
+                    }}
+                  />
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {addons.map(a => {
                       const checked = selectedAddonIds.includes(a.id);

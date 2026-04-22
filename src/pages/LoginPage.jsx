@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { motion } from 'framer-motion';
-import { User, Lock, AlertCircle, Loader2 } from 'lucide-react';
+import { User, Lock, AlertCircle, Loader2, Eye, EyeOff } from 'lucide-react';
 
 const LoginPage = () => {
   const { login } = useApp();
   const [accountId, setAccountId] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
@@ -16,7 +17,7 @@ const LoginPage = () => {
     setIsLoading(true);
     const result = await login({ accountId, password });
     if (!result.success) {
-      setError(result.message);
+      setError(result.message); 
       setIsLoading(false);
     }
   };
@@ -63,14 +64,23 @@ const LoginPage = () => {
                 <div className="relative">
                   <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
                   <input
-                    type="password"
+                    type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="block w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-slate-900 font-bold placeholder:text-slate-300 focus:outline-none focus:border-primary-500 focus:bg-white transition-all tracking-wide"
+                    className="block w-full pl-12 pr-12 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-slate-900 font-bold placeholder:text-slate-300 focus:outline-none focus:border-primary-500 focus:bg-white transition-all tracking-wide"
                     placeholder="Enter password"
                     disabled={isLoading}
                     required
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(v => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    disabled={isLoading}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
                 </div>
               </div>
 
@@ -92,22 +102,10 @@ const LoginPage = () => {
               className={`w-full bg-slate-900 text-white py-5 rounded-2xl font-bold uppercase tracking-wide transition-all shadow-xl shadow-slate-200 active:scale-[0.98] flex items-center justify-center gap-3 ${isLoading ? 'opacity-70 cursor-not-allowed' : 'hover:bg-slate-800'}`}
             >
               {isLoading ? <Loader2 size={18} className="animate-spin" /> : null}
-              {isLoading ? 'Verifying...' : 'Unlock System'}
+              {isLoading ? 'Verifying...' : 'Login'}
             </button>
           </form>
-
-          <div className="mt-12 grid grid-cols-2 gap-4">
-            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Admin Demo</p>
-              <p className="text-xs font-bold text-slate-900">ADM000001</p>
-              <p className="text-xs text-slate-500">admin123</p>
-            </div>
-            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Cashier Demo</p>
-              <p className="text-xs font-bold text-slate-900">CSH000001</p>
-              <p className="text-xs text-slate-500">cashier123</p>
-            </div>
-          </div>
+          
         </div>
         
         <p className="text-center text-slate-400 text-xs mt-8">

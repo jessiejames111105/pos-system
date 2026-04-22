@@ -12,10 +12,12 @@ import {
   Filter,
   Calendar,
   Download,
-  Search
+  Search,
+  X,
+  Loader2
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { downloadStructuredPdf, pdfFormats } from '../lib/exportPdf';
 
 const StatCard = ({ title, value, change, icon: Icon, trend, subtitle, onClick }) => (
@@ -62,6 +64,16 @@ const Dashboard = () => {
   const [reportType, setReportType] = useState('Daily'); // Daily, Weekly, Monthly
   const [topCategoryFilter, setTopCategoryFilter] = useState('all');
   const isAdmin = user?.role === 'admin';
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportPeriod, setExportPeriod] = useState('Daily');
+  const [includeSales, setIncludeSales] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
+
+  React.useEffect(() => {
+    if (!exportModalOpen) return;
+    setExportPeriod(isAdmin ? reportType : 'Daily');
+    setIncludeSales(true);
+  }, [exportModalOpen, isAdmin, reportType]);
 
   const revenueTimeline = useMemo(() => {
     if (!isAdmin) return [];
@@ -255,76 +267,111 @@ const Dashboard = () => {
     return topProductsRaw.filter(p => Number(p.category_id) === catId).slice(0, 5);
   }, [topProductsRaw, topCategoryFilter]);
 
-  const handleExport = () => {
-    const title = 'Dashboard Report';
-    const periodLabel = isAdmin ? reportType : 'Daily';
+  const getRangeForPeriod = (period) => {
+    const days = period === 'Monthly' ? 30 : period === 'Weekly' ? 7 : 1;
+    const end = new Date();
+    const start = new Date(end);
+    if (days === 1 && getBusinessDayStart) {
+      return { start: getBusinessDayStart(), end };
+    }
+    start.setDate(start.getDate() - (days - 1));
+    start.setHours(0, 0, 0, 0);
+    return { start, end };
+  };
 
-    const selectedCategoryName =
-      topCategoryFilter === 'all' ? 'All Categories' : (categories || []).find(c => String(c.id) === String(topCategoryFilter))?.name || 'Category';
+  const buildSalesRowsForPeriod = (period) => {
+    const { start, end } = getRangeForPeriod(period);
+    const wantedCategoryId = topCategoryFilter === 'all' ? null : Number(topCategoryFilter);
+    const rows = [];
+    for (const s of sales || []) {
+      const dt = s?.created_at ? new Date(s.created_at) : null;
+      if (!dt || Number.isNaN(dt.getTime())) continue;
+      if (dt < start || dt > end) continue;
 
-    const revenue = isAdmin ? displayedRevenue : Number(dailySales || 0);
-    const orders = isAdmin ? displayedOrders : todayOrders;
-    const avg = orders > 0 ? revenue / orders : 0;
-    downloadStructuredPdf({
-      filename: `ZwitBlakTea-dashboard_${periodLabel.toLowerCase()}_${new Date().toISOString().slice(0, 10)}`,
-      title,
-      subtitle: 'ZwitBlakTea',
-      meta: [
-        `Period: ${periodLabel}`,
-        ...(isAdmin ? [`Category: ${selectedCategoryName}`] : []),
-        `Period Start: ${startDate.toISOString().slice(0, 10)}`,
-        `Period End: ${new Date().toISOString().slice(0, 10)}`,
-        `Generated: ${new Date().toLocaleString()}`
-      ],
-      sections: [
-        {
-          title: 'Summary',
-          columns: ['Total Sales', 'Total Transactions', 'Avg Transaction'],
-          rows: [[
-            pdfFormats.formatPeso(revenue || 0),
-            Number(orders || 0).toLocaleString(),
-            pdfFormats.formatPeso(avg || 0)
-          ]]
-        },
-        ...(isAdmin ? [{
-          title: 'Sales Report (by day)',
-          columns: ['Date', 'Transactions', 'Revenue'],
-          columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
-          rows: (topCategoryFilter === 'all'
-            ? (reportRows || []).map(r => ([
-              String(r.sale_date),
-              Number(r.total_transactions || 0).toLocaleString(),
-              pdfFormats.formatPeso(r.total_revenue || 0)
-            ]))
-            : (revenueTimeline || []).slice(-(rangeDays)).map(p => ([
-              String(p.date),
-              '—',
-              pdfFormats.formatPeso(p.value || 0)
-            ])))
-        }] : []),
-        {
-          title: 'Top Sellers',
-          columns: ['Product', 'Category', 'Qty Sold'],
-          columnStyles: { 2: { halign: 'right' } },
-          rows: (topProductsRaw || []).map(p => ([
-            String(p.name),
-            String(p.categoryName || ''),
-            Number(p.qty || 0).toLocaleString()
-          ]))
-        },
-        {
-          title: 'Low-stock Ingredients',
-          columns: ['Ingredient', 'Remaining', 'Unit', 'Min'],
-          columnStyles: { 1: { halign: 'right' }, 3: { halign: 'right' } },
-          rows: (lowStockIngredients || []).map(i => ([
-            String(i.name),
-            Number(i.quantity || 0).toLocaleString(),
-            String(i.unit || ''),
-            Number(i.min_stock || 0).toLocaleString()
-          ]))
+      let categoryMatch = true;
+      if (wantedCategoryId != null && Number.isFinite(wantedCategoryId)) {
+        categoryMatch = false;
+        for (const item of s.items || []) {
+          if (Number(item.category_id || 0) === wantedCategoryId) {
+            categoryMatch = true;
+            break;
+          }
         }
-      ]
-    });
+      }
+      if (!categoryMatch) continue;
+
+      rows.push(s);
+    }
+    rows.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+    return rows;
+  };
+
+  const buildPeriodSummary = (period) => {
+    const saleRows = buildSalesRowsForPeriod(period);
+    const wantedCategoryId = topCategoryFilter === 'all' ? null : Number(topCategoryFilter);
+    const total = saleRows.reduce((sum, s) => {
+      if (wantedCategoryId == null || !Number.isFinite(wantedCategoryId)) return sum + Number(s.total_amount || s.total || 0);
+      let subtotal = 0;
+      for (const item of s.items || []) {
+        if (Number(item.category_id || 0) !== wantedCategoryId) continue;
+        subtotal += Number(item.subtotal || 0);
+      }
+      return sum + subtotal;
+    }, 0);
+    const orders = saleRows.length;
+    const avg = orders > 0 ? total / orders : 0;
+    return { total, orders, avg, saleRows };
+  };
+
+  const handleExport = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    try {
+      const period = isAdmin ? exportPeriod : 'Daily';
+      const { start, end } = getRangeForPeriod(period);
+      const summary = buildPeriodSummary(period);
+
+      const sections = [{
+        title: 'Summary',
+        columns: ['Total Sales', 'Total Transactions', 'Avg Transaction'],
+        rows: [[
+          pdfFormats.formatPeso(summary.total || 0),
+          Number(summary.orders || 0).toLocaleString(),
+          pdfFormats.formatPeso(summary.avg || 0)
+        ]]
+      }];
+
+      if (includeSales) {
+        sections.push({
+          title: 'Sales',
+          columns: ['Date/Time', 'Sale ID', 'Cashier', 'Payment', 'Total'],
+          columnStyles: { 4: { halign: 'right' } },
+          rows: (summary.saleRows || []).map(s => ([
+            s.created_at ? new Date(s.created_at).toLocaleString() : '',
+            String(s.id ?? ''),
+            String(s.cashier || ''),
+            String(s.payment_method || s.paymentMethod || ''),
+            pdfFormats.formatPeso(s.total_amount ?? s.total ?? 0)
+          ]))
+        });
+      }
+
+      downloadStructuredPdf({
+        filename: `ZwitBlakTea-dashboard_${String(period).toLowerCase()}_${new Date().toISOString().slice(0, 10)}`,
+        title: 'Dashboard Report',
+        subtitle: 'ZwitBlakTea',
+        meta: [
+          `Period: ${period}`,
+          `Period Start: ${start.toISOString().slice(0, 10)}`,
+          `Period End: ${end.toISOString().slice(0, 10)}`,
+          `Generated: ${new Date().toLocaleString()}`
+        ],
+        sections
+      });
+      setExportModalOpen(false);
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   return (
@@ -362,12 +409,92 @@ const Dashboard = () => {
               </select>
             </div>
           )}
-          <button onClick={handleExport} className="p-4 bg-white border border-slate-200 text-slate-600 rounded-2xl hover:bg-slate-50 transition-all shadow-sm flex items-center gap-2 font-bold uppercase tracking-wide text-[10px]">
+          <button onClick={() => setExportModalOpen(true)} className="p-4 bg-white border border-slate-200 text-slate-600 rounded-2xl hover:bg-slate-50 transition-all shadow-sm flex items-center gap-2 font-bold uppercase tracking-wide text-[10px]">
             <Download size={18} />
             Export PDF
           </button>
         </div>
       </div>
+
+      <AnimatePresence>
+        {exportModalOpen ? (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setExportModalOpen(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <h3 className="text-lg font-bold text-slate-900">Export PDF</h3>
+                <button
+                  type="button"
+                  onClick={() => setExportModalOpen(false)}
+                  className="p-2 hover:bg-slate-200 rounded-full text-slate-400 transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="p-6 space-y-5">
+                {isAdmin ? (
+                  <div className="space-y-2">
+                    <div className="text-xs font-bold text-slate-400 uppercase tracking-wide">Select period</div>
+                    <div className="bg-white p-2 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-2">
+                      <Calendar size={16} className="text-slate-400" />
+                      <select
+                        value={exportPeriod}
+                        onChange={(e) => setExportPeriod(e.target.value)}
+                        className="select-system select-filter"
+                      >
+                        <option value="Daily">Daily</option>
+                        <option value="Weekly">Weekly</option>
+                        <option value="Monthly">Monthly</option>
+                      </select>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={includeSales}
+                    onChange={(e) => setIncludeSales(Boolean(e.target.checked))}
+                  />
+                  <div className="text-sm font-semibold text-slate-700">Include sales list</div>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    disabled={isExporting}
+                    onClick={() => setExportModalOpen(false)}
+                    className="flex-1 px-4 py-3 border border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition-all disabled:bg-slate-100 disabled:text-slate-400"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isExporting}
+                    onClick={handleExport}
+                    className="flex-1 px-4 py-3 bg-primary-600 text-white font-bold rounded-xl hover:bg-primary-700 shadow-lg shadow-primary-200 transition-all disabled:bg-slate-200 disabled:shadow-none flex items-center justify-center gap-2"
+                  >
+                    {isExporting ? <Loader2 size={16} className="animate-spin" /> : null}
+                    {isExporting ? 'Exporting...' : 'Export'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        ) : null}
+      </AnimatePresence>
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

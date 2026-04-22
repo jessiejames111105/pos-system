@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { motion, AnimatePresence } from 'framer-motion';
+import SearchableSelect from '../components/SearchableSelect';
 
 const Inventory = () => {
   const {
@@ -41,10 +42,28 @@ const Inventory = () => {
     deleteAddon,
     setAddonBOM,
     addAddonCategory,
+    renameIngredientCategory,
+    renameMaterialCategory,
+    renameAddonCategory,
+    deleteIngredientCategory,
+    deleteMaterialCategory,
+    deleteAddonCategory,
     user,
     globalSearchTerm,
     setGlobalSearchTerm
   } = useApp();
+
+  const ingredientOptions = useMemo(() => {
+    const list = ingredients || [];
+    const isMaterial = (ing) => {
+      const unit = String(ing?.unit || '').trim().toLowerCase();
+      return unit === 'pcs' || unit === 'pc' || unit === 'piece' || unit === 'pieces';
+    };
+    return [
+      ...list.filter(i => !isMaterial(i)).map(ing => ({ value: ing.id, label: ing.name, group: 'Ingredients' })),
+      ...list.filter(isMaterial).map(ing => ({ value: ing.id, label: ing.name, group: 'Materials' }))
+    ];
+  }, [ingredients]);
   const [activeTab, setActiveTab] = useState('ingredients');
   const [searchTerm, setSearchTerm] = useState('');
   const [isIngredientModalOpen, setIsIngredientModalOpen] = useState(false);
@@ -64,6 +83,13 @@ const Inventory = () => {
   const [categoryModalOpen, setCategoryModalOpen] = useState(false);
   const [categoryModalKind, setCategoryModalKind] = useState('ingredient');
   const [categoryName, setCategoryName] = useState('');
+  const [editCategoryModalOpen, setEditCategoryModalOpen] = useState(false);
+  const [editCategoryKind, setEditCategoryKind] = useState('ingredient');
+  const [editFromCategory, setEditFromCategory] = useState('');
+  const [editToCategory, setEditToCategory] = useState('');
+  const [deleteCategoryModalOpen, setDeleteCategoryModalOpen] = useState(false);
+  const [deleteCategoryKind, setDeleteCategoryKind] = useState('ingredient');
+  const [deleteCategoryName, setDeleteCategoryName] = useState('');
   const [ingredientCategoryFilter, setIngredientCategoryFilter] = useState('all');
   const [materialCategoryFilter, setMaterialCategoryFilter] = useState('all');
   const [addonCategoryFilter, setAddonCategoryFilter] = useState('all');
@@ -83,7 +109,7 @@ const Inventory = () => {
   const initialIngredientForm = {
     name: '',
     category: 'General',
-    unit: 'pcs',
+    unit: 'g',
     quantity: '',
     min_stock: ''
   };
@@ -109,6 +135,9 @@ const Inventory = () => {
   const filteredIngredients = useMemo(() => {
     const term = String(searchTerm || '').toLowerCase();
     return (ingredients || []).filter(i => {
+      const unit = String(i?.unit || '').trim().toLowerCase();
+      const isMaterial = unit === 'pcs' || unit === 'pc' || unit === 'piece' || unit === 'pieces';
+      if (isMaterial) return false;
       if (String(i.name || '').toLowerCase().includes(term)) return true;
       if (String(i.category || '').toLowerCase().includes(term)) return true;
       return false;
@@ -165,7 +194,11 @@ const Inventory = () => {
 
   const ingredientCategoryOptions = useMemo(() => {
     const defaults = ['General', 'Others'];
-    const existing = (ingredients || []).map(i => String(i.category || '').trim()).filter(Boolean);
+    const existing = (ingredients || []).filter(i => {
+      const unit = String(i?.unit || '').trim().toLowerCase();
+      const isMaterial = unit === 'pcs' || unit === 'pc' || unit === 'piece' || unit === 'pieces';
+      return !isMaterial;
+    }).map(i => String(i.category || '').trim()).filter(Boolean);
     const stored = (ingredientCategories || []).map(x => String(x).trim()).filter(Boolean);
     return Array.from(new Set([...defaults, ...stored, ...existing])).sort((a, b) => a.localeCompare(b));
   }, [ingredients, ingredientCategories]);
@@ -190,6 +223,19 @@ const Inventory = () => {
     setCategoryModalOpen(true);
   };
 
+  const openEditCategoryModal = (kind) => {
+    setEditCategoryKind(kind);
+    setEditFromCategory('');
+    setEditToCategory('');
+    setEditCategoryModalOpen(true);
+  };
+
+  const openDeleteCategoryModal = (kind) => {
+    setDeleteCategoryKind(kind);
+    setDeleteCategoryName('');
+    setDeleteCategoryModalOpen(true);
+  };
+
   const saveCategory = async (e) => {
     e.preventDefault();
     if (isSubmitting) return;
@@ -212,6 +258,63 @@ const Inventory = () => {
       }
       setCategoryModalOpen(false);
       setSuccessMessage('Add Category Success');
+      setSuccessOpen(true);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const saveCategoryEdit = async (e) => {
+    e.preventDefault();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const from = String(editFromCategory || '').trim();
+      const to = String(editToCategory || '').trim();
+      if (!from || !to) return;
+      if (editCategoryKind === 'ingredient') {
+        const res = await renameIngredientCategory({ from, to });
+        if (!res?.ok) return;
+        if (ingredientCategoryFilter === from) setIngredientCategoryFilter(to);
+      } else if (editCategoryKind === 'material') {
+        const res = await renameMaterialCategory({ from, to });
+        if (!res?.ok) return;
+        if (materialCategoryFilter === from) setMaterialCategoryFilter(to);
+      } else {
+        const res = await renameAddonCategory({ from, to });
+        if (!res?.ok) return;
+        if (addonCategoryFilter === from) setAddonCategoryFilter(to);
+      }
+      setEditCategoryModalOpen(false);
+      setSuccessMessage('Edit Category Success');
+      setSuccessOpen(true);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const saveCategoryDelete = async (e) => {
+    e.preventDefault();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const name = String(deleteCategoryName || '').trim();
+      if (!name) return;
+      if (deleteCategoryKind === 'ingredient') {
+        const res = await deleteIngredientCategory({ name });
+        if (!res?.ok) return;
+        if (ingredientCategoryFilter === name) setIngredientCategoryFilter('all');
+      } else if (deleteCategoryKind === 'material') {
+        const res = await deleteMaterialCategory({ name });
+        if (!res?.ok) return;
+        if (materialCategoryFilter === name) setMaterialCategoryFilter('all');
+      } else {
+        const res = await deleteAddonCategory({ name });
+        if (!res?.ok) return;
+        if (addonCategoryFilter === name) setAddonCategoryFilter('all');
+      }
+      setDeleteCategoryModalOpen(false);
+      setSuccessMessage('Delete Category Success');
       setSuccessOpen(true);
     } finally {
       setIsSubmitting(false);
@@ -265,7 +368,8 @@ const Inventory = () => {
       const upd = await updateIngredient(editingIngredient.id, { name: payload.name, category: payload.category, unit: payload.unit, min_stock: payload.min_stock });
       if (!upd?.ok) return;
       if (delta !== 0) {
-        const adj = await adjustIngredientStock({ ingredientId: editingIngredient.id, change: delta, reason: 'adjustment' });
+        const reason = delta > 0 ? 'restock' : 'adjustment';
+        const adj = await adjustIngredientStock({ ingredientId: editingIngredient.id, change: delta, reason });
         if (!adj?.ok) return;
       }
       setIsIngredientModalOpen(false);
@@ -305,7 +409,8 @@ const Inventory = () => {
       const upd = await updateMaterial(editingMaterial.id, { name: payload.name, category: payload.category, unit: payload.unit, min_stock: payload.min_stock });
       if (!upd?.ok) return;
       if (delta !== 0) {
-        const adj = await adjustMaterialStock({ materialId: editingMaterial.id, change: delta, reason: 'adjustment' });
+        const reason = delta > 0 ? 'restock' : 'adjustment';
+        const adj = await adjustMaterialStock({ materialId: editingMaterial.id, change: delta, reason });
         if (!adj?.ok) return;
       }
       setIsMaterialModalOpen(false);
@@ -492,6 +597,159 @@ const Inventory = () => {
         )}
       </AnimatePresence>
 
+      <AnimatePresence>
+        {editCategoryModalOpen && (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setEditCategoryModalOpen(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <h3 className="text-lg font-bold text-slate-900">Edit Category</h3>
+                <button
+                  type="button"
+                  onClick={() => setEditCategoryModalOpen(false)}
+                  className="p-2 hover:bg-slate-200 rounded-full text-slate-400 transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <form onSubmit={saveCategoryEdit} className="p-6 space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-bold text-slate-700">Select Category</label>
+                  <select
+                    className="select-system w-full"
+                    value={editFromCategory}
+                    onChange={(e) => setEditFromCategory(e.target.value)}
+                    required
+                  >
+                    <option value="">Select...</option>
+                    {(editCategoryKind === 'ingredient'
+                      ? ingredientCategoryOptions
+                      : editCategoryKind === 'material'
+                        ? materialCategoryOptions
+                        : addonCategoryOptions
+                    ).map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-bold text-slate-700">New Category Name</label>
+                  <input
+                    required
+                    type="text"
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all font-bold"
+                    value={editToCategory}
+                    onChange={(e) => setEditToCategory(e.target.value)}
+                  />
+                </div>
+                <div className="pt-2 flex gap-3">
+                  <button
+                    type="button"
+                    disabled={isSubmitting}
+                    onClick={() => setEditCategoryModalOpen(false)}
+                    className="flex-1 px-4 py-3 border border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition-all disabled:bg-slate-100 disabled:text-slate-400"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="flex-1 px-4 py-3 bg-primary-600 text-white font-bold rounded-xl hover:bg-primary-700 shadow-lg shadow-primary-200 transition-all disabled:bg-slate-200 disabled:shadow-none flex items-center justify-center gap-2"
+                  >
+                    {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : null}
+                    {isSubmitting ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {deleteCategoryModalOpen && (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setDeleteCategoryModalOpen(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <h3 className="text-lg font-bold text-slate-900">Delete Category</h3>
+                <button
+                  type="button"
+                  onClick={() => setDeleteCategoryModalOpen(false)}
+                  className="p-2 hover:bg-slate-200 rounded-full text-slate-400 transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <form onSubmit={saveCategoryDelete} className="p-6 space-y-4">
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 font-semibold">
+                  Items under this category will become Uncategorized.
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-bold text-slate-700">Select Category</label>
+                  <select
+                    className="select-system w-full"
+                    value={deleteCategoryName}
+                    onChange={(e) => setDeleteCategoryName(e.target.value)}
+                    required
+                  >
+                    <option value="">Select...</option>
+                    {(deleteCategoryKind === 'ingredient'
+                      ? ingredientCategoryOptions
+                      : deleteCategoryKind === 'material'
+                        ? materialCategoryOptions
+                        : addonCategoryOptions
+                    ).map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="pt-2 flex gap-3">
+                  <button
+                    type="button"
+                    disabled={isSubmitting}
+                    onClick={() => setDeleteCategoryModalOpen(false)}
+                    className="flex-1 px-4 py-3 border border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition-all disabled:bg-slate-100 disabled:text-slate-400"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="flex-1 px-4 py-3 bg-rose-600 text-white font-bold rounded-xl hover:bg-rose-700 shadow-lg shadow-rose-200 transition-all disabled:bg-slate-200 disabled:shadow-none flex items-center justify-center gap-2"
+                  >
+                    {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : null}
+                    {isSubmitting ? 'Deleting...' : 'Delete'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Inventory Management</h1>
@@ -521,6 +779,20 @@ const Inventory = () => {
             >
               <Plus size={18} />
               Add Category
+            </button>
+            <button
+              onClick={() => openEditCategoryModal(activeTab === 'ingredients' ? 'ingredient' : activeTab === 'materials' ? 'material' : 'addon')}
+              className="btn btn-secondary flex items-center gap-2"
+            >
+              <Settings2 size={18} />
+              Edit Category
+            </button>
+            <button
+              onClick={() => openDeleteCategoryModal(activeTab === 'ingredients' ? 'ingredient' : activeTab === 'materials' ? 'material' : 'addon')}
+              className="btn btn-secondary flex items-center gap-2"
+            >
+              <Trash2 size={18} />
+              Delete Category
             </button>
           </div>
         )}
@@ -1305,19 +1577,15 @@ const Inventory = () => {
                   {addonBomLines.map((line, idx) => (
                     <div key={idx} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
                       <div className="md:col-span-7">
-                        <select
-                          className="select-system w-full"
+                        <SearchableSelect
                           value={line.ingredient_id}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            setAddonBomLines(prev => prev.map((x, i) => i === idx ? { ...x, ingredient_id: v } : x));
+                          options={ingredientOptions}
+                          placeholder="Type to search..."
+                          onChange={(v) => {
+                            const nextId = v === '' ? '' : Number(v);
+                            setAddonBomLines(prev => prev.map((x, i) => i === idx ? { ...x, ingredient_id: nextId } : x));
                           }}
-                        >
-                          <option value="">Select ingredient</option>
-                          {ingredients.map(ing => (
-                            <option key={ing.id} value={ing.id}>{ing.name}</option>
-                          ))}
-                        </select>
+                        />
                       </div>
                       <div className="md:col-span-4">
                         <input
@@ -1325,7 +1593,7 @@ const Inventory = () => {
                           min="0"
                           step="0.001"
                           className="w-full rounded-xl border border-slate-200 p-3 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 outline-none transition-all"
-                          placeholder="Qty per add-on unit"
+                          placeholder={`Qty (${ingredients.find(ing => String(ing.id) === String(line.ingredient_id))?.unit || 'unit'})`}
                           value={line.quantity}
                           onChange={(e) => {
                             const v = e.target.value;

@@ -1,7 +1,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-const formatPeso = (n) => `₱${Number(n || 0).toLocaleString()}`;
+const formatPeso = (n) => `PHP ${Number(n || 0).toLocaleString()}`;
 
 export const downloadStructuredPdf = ({ filename, title, subtitle, meta = [], sections = [] }) => {
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });

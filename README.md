@@ -31,70 +31,10 @@ VITE_SUPABASE_ANON_KEY=your-anon-key
 ```
 
 ### 2. Supabase Database Schema
-Run the following SQL in your Supabase SQL Editor:
-
-```sql
--- Categories table
-create table categories (
-  id uuid default uuid_generate_v4() primary key,
-  name text not null unique,
-  created_at timestamp with time zone default timezone('utc'::text, now())
-);
-
--- Products table
-create table products (
-  id uuid default uuid_generate_v4() primary key,
-  category_id uuid references categories(id) on delete set null,
-  name text not null,
-  description text,
-  image_url text,
-  created_at timestamp with time zone default timezone('utc'::text, now())
-);
-
--- Product sizes and prices
-create table product_sizes (
-  id uuid default uuid_generate_v4() primary key,
-  product_id uuid references products(id) on delete cascade,
-  size_name text not null,
-  price decimal(10,2) not null
-);
-
--- Product ingredients
-create table product_ingredients (
-  id uuid default uuid_generate_v4() primary key,
-  product_id uuid references products(id) on delete cascade,
-  ingredient_name text not null,
-  quantity decimal(10,2) not null,
-  unit text not null
-);
-
--- Product add-ons
-create table product_addons (
-  id uuid default uuid_generate_v4() primary key,
-  product_id uuid references products(id) on delete cascade,
-  name text not null,
-  price decimal(10,2) not null
-);
-
--- Orders table
-create table orders (
-  id uuid default uuid_generate_v4() primary key,
-  total_amount decimal(10,2) not null,
-  status text default 'pending',
-  payment_method text,
-  created_at timestamp with time zone default timezone('utc'::text, now())
-);
-
--- Order items table
-create table order_items (
-  id uuid default uuid_generate_v4() primary key,
-  order_id uuid references orders(id) on delete cascade,
-  product_id uuid references products(id),
-  quantity integer not null,
-  unit_price decimal(10,2) not null,
-  subtotal decimal(10,2) not null
-);
-```
+Run the SQL in [supabase_schema.sql](file:///c:/Users/Admin/Documents/POS/supabase_schema.sql) in your Supabase SQL Editor.
+ 
+Notes:
+- “Materials” (cups, lids, straws, containers) are stored in the `ingredients` table using unit `pcs` (or `pc/piece/pieces`). The UI groups them as Materials.
 
 ### 3. Installation
 ```bash
@@ -105,6 +45,11 @@ npm install
 ```bash
 npm run dev
 ```
+
+## Local + Online
+
+- Local development: keep `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `.env.local`.
+- Deployment (Vercel/Netlify/etc): set the same environment variables in the hosting provider dashboard.
 
 ## Project Structure
 
