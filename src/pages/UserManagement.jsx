@@ -3,7 +3,6 @@ import {
   UserPlus, 
   Shield, 
   User, 
-  Trash2, 
   AlertTriangle,
   Filter,
   X, 
@@ -18,13 +17,13 @@ import { useApp } from '../store/AppContext';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const UserManagement = () => {
-  const { accounts, createAccount, deleteAccount, updateAccountPassword, verifyCredentials, user: currentUser, globalSearchTerm, setGlobalSearchTerm } = useApp();
+  const { accounts, createAccount, setAccountActive, updateAccountPassword, verifyCredentials, user: currentUser, globalSearchTerm, setGlobalSearchTerm } = useApp();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSuccessOpen, setIsSuccessOpen] = useState(false);
   const [successUser, setSuccessUser] = useState(null);
   const [createConfirmOpen, setCreateConfirmOpen] = useState(false);
   const [pendingCreate, setPendingCreate] = useState(null);
-  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [statusTarget, setStatusTarget] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [reauthOpen, setReauthOpen] = useState(false);
   const [reauthAction, setReauthAction] = useState(null);
@@ -32,7 +31,7 @@ const UserManagement = () => {
   const [reauthPassword, setReauthPassword] = useState('');
   const [reauthError, setReauthError] = useState('');
   const [reauthLockAccountId, setReauthLockAccountId] = useState(false);
-  const [pendingDelete, setPendingDelete] = useState(null);
+  const [pendingStatusChange, setPendingStatusChange] = useState(null);
   const [pendingViewPassword, setPendingViewPassword] = useState(null);
   const [viewPasswordOpen, setViewPasswordOpen] = useState(false);
   const [viewPasswordValue, setViewPasswordValue] = useState('');
@@ -99,12 +98,12 @@ const UserManagement = () => {
     );
   });
 
-  const confirmDelete = async () => {
-    if (!deleteTarget?.id) return;
+  const confirmStatusChange = async () => {
+    if (!statusTarget?.id) return;
     if (isSubmitting) return;
-    setPendingDelete(deleteTarget);
-    setDeleteTarget(null);
-    requestReauth('delete');
+    setPendingStatusChange(statusTarget);
+    setStatusTarget(null);
+    requestReauth('status_change');
   };
 
   const requestViewPassword = (acct) => {
@@ -177,10 +176,11 @@ const UserManagement = () => {
         setReauthOpen(false);
         return;
       }
-      if (reauthAction === 'delete') {
-        if (!pendingDelete?.id) return;
-        await deleteAccount(pendingDelete.id);
-        setPendingDelete(null);
+      if (reauthAction === 'status_change') {
+        if (!pendingStatusChange?.id) return;
+        const currentActive = pendingStatusChange.is_active !== false;
+        await setAccountActive({ id: pendingStatusChange.id, is_active: !currentActive });
+        setPendingStatusChange(null);
         setReauthOpen(false);
         return;
       }
@@ -262,6 +262,7 @@ const UserManagement = () => {
               <tr className="bg-slate-50/80 text-slate-500 text-[10px] font-bold uppercase tracking-wide">
                 <th className="px-6 py-4">User</th>
                 <th className="px-6 py-4">Role</th>
+                <th className="px-6 py-4">Status</th>
                 <th className="px-6 py-4">Account ID</th>
                 <th className="px-6 py-4">Password</th>
                 <th className="px-6 py-4 text-right">Actions</th>
@@ -269,7 +270,7 @@ const UserManagement = () => {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredUsers.map((u) => (
-                <tr key={u.id} className="hover:bg-slate-50/50 transition-colors group">
+                <tr key={u.id} className={`hover:bg-slate-50/50 transition-colors group ${u.is_active === false ? 'opacity-70' : ''}`}>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
                       <div className={`h-9 w-9 rounded-full flex items-center justify-center ${u.role === 'admin' ? 'bg-amber-100 text-amber-600' : 'bg-blue-100 text-blue-600'}`}>
@@ -284,6 +285,13 @@ const UserManagement = () => {
                   <td className="px-6 py-4">
                     <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase ${u.role === 'admin' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'}`}>
                       {u.role}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase ${
+                      u.is_active === false ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                    }`}>
+                      {u.is_active === false ? 'Inactive' : 'Active'}
                     </span>
                   </td>
                   <td className="px-6 py-4">
@@ -315,12 +323,12 @@ const UserManagement = () => {
                         </button>
                       )}
                       <button 
-                        onClick={() => setDeleteTarget({ id: u.id, name: u.name, email: u.account_id || u.email || '—', role: u.role })}
+                        onClick={() => setStatusTarget({ id: u.id, name: u.name, email: u.account_id || u.email || '—', role: u.role, is_active: u.is_active !== false })}
                         disabled={currentUser.id === u.id}
-                        className={`p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all ${currentUser.id === u.id ? 'opacity-0 pointer-events-none' : ''}`}
-                        title="Delete"
+                        className={`p-2 text-slate-400 rounded-lg transition-all ${currentUser.id === u.id ? 'opacity-0 pointer-events-none' : (u.is_active === false ? 'hover:text-emerald-700 hover:bg-emerald-50' : 'hover:text-rose-700 hover:bg-rose-50')}`}
+                        title={u.is_active === false ? 'Activate' : 'Deactivate'}
                       >
-                        <Trash2 size={16} />
+                        {u.is_active === false ? <CheckCircle2 size={16} /> : <Lock size={16} />}
                       </button>
                     </div>
                   </td>
@@ -824,13 +832,13 @@ const UserManagement = () => {
       </AnimatePresence>
 
       <AnimatePresence>
-        {deleteTarget && (
+        {statusTarget && (
           <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setDeleteTarget(null)}
+              onClick={() => setStatusTarget(null)}
               className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
             />
             <motion.div
@@ -840,9 +848,11 @@ const UserManagement = () => {
               className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden"
             >
               <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-                <h3 className="text-lg font-bold text-slate-900">Confirm Delete</h3>
+                <h3 className="text-lg font-bold text-slate-900">
+                  {statusTarget.is_active === false ? 'Confirm Activate' : 'Confirm Deactivate'}
+                </h3>
                 <button
-                  onClick={() => setDeleteTarget(null)}
+                  onClick={() => setStatusTarget(null)}
                   className="p-2 hover:bg-slate-200 rounded-full text-slate-400 transition-colors"
                 >
                   <X size={20} />
@@ -855,38 +865,46 @@ const UserManagement = () => {
                     <AlertTriangle size={22} />
                   </div>
                   <div className="flex-1">
-                    <p className="text-sm font-bold text-slate-900">Delete this account?</p>
-                    <p className="text-xs text-slate-600">This action cannot be undone.</p>
+                    <p className="text-sm font-bold text-slate-900">
+                      {statusTarget.is_active === false ? 'Activate this account?' : 'Deactivate this account?'}
+                    </p>
+                    <p className="text-xs text-slate-600">
+                      Transactions will remain saved for reporting and history.
+                    </p>
                   </div>
                 </div>
 
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Name</span>
-                    <span className="text-sm font-bold text-slate-900">{deleteTarget.name}</span>
+                    <span className="text-sm font-bold text-slate-900">{statusTarget.name}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Account ID</span>
-                    <span className="text-sm font-bold text-slate-900">{deleteTarget.email}</span>
+                    <span className="text-sm font-bold text-slate-900">{statusTarget.email}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Role</span>
-                    <span className="text-sm font-bold text-slate-900 uppercase">{deleteTarget.role}</span>
+                    <span className="text-sm font-bold text-slate-900 uppercase">{statusTarget.role}</span>
                   </div>
                 </div>
 
                 <div className="pt-2 flex gap-3">
                   <button
-                    onClick={() => setDeleteTarget(null)}
+                    onClick={() => setStatusTarget(null)}
                     className="flex-1 px-4 py-3 border border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition-all text-xs uppercase"
                   >
                     Cancel
                   </button>
                   <button
-                    onClick={confirmDelete}
-                    className="flex-1 px-4 py-3 bg-rose-600 text-white font-bold rounded-xl hover:bg-rose-700 shadow-lg shadow-rose-200 transition-all text-xs uppercase"
+                    onClick={confirmStatusChange}
+                    className={`flex-1 px-4 py-3 text-white font-bold rounded-xl shadow-lg transition-all text-xs uppercase ${
+                      statusTarget.is_active === false
+                        ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200'
+                        : 'bg-rose-600 hover:bg-rose-700 shadow-rose-200'
+                    }`}
                   >
-                    Delete
+                    {statusTarget.is_active === false ? 'Activate' : 'Deactivate'}
                   </button>
                 </div>
               </div>

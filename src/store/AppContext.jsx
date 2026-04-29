@@ -10,7 +10,7 @@ const supabaseKeyEnv =
 const isSupabaseConfigured = Boolean(
   supabaseUrlEnv &&
     supabaseKeyEnv &&
-    !String(supabaseUrlEnv).includes('your-project-url') &&
+    !String(supabaseUrlEnv).includes('your-project-url.supabase.co') &&
     !['your-anon-key', 'your-anon-key-here'].includes(String(supabaseKeyEnv))
 );
 
@@ -256,7 +256,11 @@ export function AppProvider({ children }) {
   }, [addons]);
 
   const parseBomRef = (raw) => {
-    const v = String(raw || '');
+    const v = String(raw ?? '').trim();
+    if (!v) return { type: 'ingredient', id: '' };
+    if (v.startsWith('mat:')) return { type: 'material', id: v.slice(4) };
+    if (v.startsWith('ing:')) return { type: 'ingredient', id: v.slice(4) };
+    if (materialById.has(v)) return { type: 'material', id: v };
     return { type: 'ingredient', id: v };
   };
 
@@ -1667,7 +1671,8 @@ export function AppProvider({ children }) {
       password: (password || '').toString(),
       role: normalizedRole,
       account_id: accountId,
-      email: accountId
+      email: accountId,
+      is_active: true
     };
     if (!payload.name || !payload.password) {
       addNotification('Please fill out name and password.', 'warning');
@@ -1680,7 +1685,7 @@ export function AppProvider({ children }) {
         addNotification('Account ID already exists.', 'error');
         return { ok: false };
       }
-      const local = { id: `demo-${Date.now()}`, name: payload.name, role: payload.role, account_id: payload.account_id };
+      const local = { id: `demo-${Date.now()}`, name: payload.name, role: payload.role, account_id: payload.account_id, is_active: true };
       setAccounts(prev => [local, ...prev]);
       addNotification('Account created.', 'success');
       await logActivity({ action: `Created account: ${local.account_id} (${local.role})`, area: 'user_management', entityType: 'account', entityId: local.id });
@@ -1699,6 +1704,19 @@ export function AppProvider({ children }) {
     }
 
     let { data, error } = await supabase.from('accounts').insert([payload]).select('*');
+    if (error) {
+      const msg = String(error.message || '').toLowerCase();
+      if (msg.includes('is_active') && (msg.includes('schema cache') || msg.includes('column'))) {
+        const retryPayload = { ...payload };
+        delete retryPayload.is_active;
+        const retry = await supabase.from('accounts').insert([retryPayload]).select('*');
+        data = retry.data;
+        error = retry.error;
+        if (!error) {
+          addNotification('Account created, but your database is missing accounts.is_active. Run the migration to enable activate/deactivate.', 'warning');
+        }
+      }
+    }
     if (error && String(error.message || '').toLowerCase().includes('account_id')) {
       const fallback = {
         name: payload.name,
@@ -1729,6 +1747,45 @@ export function AppProvider({ children }) {
       entityId: data[0].id
     });
     return { ok: true, account: data[0] };
+  };
+
+  const setAccountActive = async ({ id, is_active }) => {
+    if (!id) return { ok: false };
+    if (String(normalizedUser?.id || '') === String(id)) return { ok: false };
+    const nextActive = Boolean(is_active);
+    const acct = accounts.find(a => String(a.id) === String(id));
+    const label = acct?.account_id || acct?.email || id;
+    const actionLabel = nextActive ? 'Activated' : 'Deactivated';
+
+    if (!isSupabaseConfigured) {
+      setAccounts(prev => (prev || []).map(a => String(a.id) === String(id) ? { ...a, is_active: nextActive } : a));
+      addNotification(`Account ${nextActive ? 'activated' : 'deactivated'}.`, 'success');
+      await logActivity({ action: `${actionLabel} account: ${label}`, area: 'user_management', entityType: 'account', entityId: id });
+      return { ok: true };
+    }
+
+    let updated = false;
+    try {
+      const { error } = await withTimeout(supabase.from('accounts').update({ is_active: nextActive }).eq('id', id), 5000);
+      if (error) throw error;
+      updated = true;
+    } catch (err) {
+      const msg = String(err?.message || '').toLowerCase();
+      if (msg.includes('column') && msg.includes('is_active')) {
+        addNotification('Database missing accounts.is_active. Run the migration to enable activate/deactivate.', 'error');
+        return { ok: false };
+      }
+      addNotification('Failed to update account status.', 'error');
+      return { ok: false };
+    }
+
+    if (updated) {
+      setAccounts(prev => (prev || []).map(a => String(a.id) === String(id) ? { ...a, is_active: nextActive } : a));
+      addNotification(`Account ${nextActive ? 'activated' : 'deactivated'}.`, 'success');
+      await logActivity({ action: `${actionLabel} account: ${label}`, area: 'user_management', entityType: 'account', entityId: id });
+      return { ok: true };
+    }
+    return { ok: false };
   };
 
   const deleteAccount = async (id) => {
@@ -1785,8 +1842,8 @@ export function AppProvider({ children }) {
       if (!isSupabaseConfigured) {
         addNotification('Supabase is not configured. Running in demo mode.', 'warning');
         setAccounts([
-          { id: 'demo-admin', name: 'Admin User', account_id: 'ADM000001', role: 'admin' },
-          { id: 'demo-cashier', name: 'Cashier User', account_id: 'CSH000001', role: 'cashier' }
+          { id: 'demo-admin', name: 'Admin User', account_id: 'ADM000001', role: 'admin', is_active: true },
+          { id: 'demo-cashier', name: 'Cashier User', account_id: 'CSH000001', role: 'cashier', is_active: true }
         ]);
         if (!Array.isArray(categories) || categories.length === 0) {
           const demoCategories = [
@@ -1956,15 +2013,25 @@ export function AppProvider({ children }) {
     try {
       let { data, error } = await supabase
         .from('accounts')
-        .select('id,name,role,account_id,email')
+        .select('id,name,role,account_id,email,is_active')
         .eq('account_id', normalizedAccountId)
         .eq('password', normalizedPassword)
         .limit(1);
 
-      if (error && String(error.message || '').toLowerCase().includes('account_id')) {
+      const errMsg = String(error?.message || '').toLowerCase();
+      if (error && errMsg.includes('column') && errMsg.includes('is_active')) {
         const retry = await supabase
           .from('accounts')
-          .select('id,name,role,email')
+          .select('id,name,role,account_id,email')
+          .eq('account_id', normalizedAccountId)
+          .eq('password', normalizedPassword)
+          .limit(1);
+        data = retry.data;
+        error = retry.error;
+      } else if (error && errMsg.includes('account_id')) {
+        const retry = await supabase
+          .from('accounts')
+          .select('id,name,role,email,is_active')
           .eq('email', normalizedAccountId)
           .eq('password', normalizedPassword)
           .limit(1);
@@ -1983,6 +2050,9 @@ export function AppProvider({ children }) {
         setLoginThrottleState(normalizedAccountId, { attempts: nextAttempts, lockUntil: 0 });
         const remaining = Math.max(0, LOGIN_MAX_ATTEMPTS - nextAttempts);
         return { success: false, message: `Invalid account ID or password. Attempts left: ${remaining}.` };
+      }
+      if (Object.prototype.hasOwnProperty.call(found, 'is_active') && found.is_active === false) {
+        return { success: false, message: 'Account is deactivated. Please contact the admin.' };
       }
       setUser(found);
       localStorage.setItem('pos_user', JSON.stringify(found));
@@ -2013,15 +2083,25 @@ export function AppProvider({ children }) {
     try {
       let { data, error } = await supabase
         .from('accounts')
-        .select('id,account_id,email')
+        .select('id,account_id,email,is_active')
         .eq('account_id', normalizedAccountId)
         .eq('password', normalizedPassword)
         .limit(1);
 
-      if (error && String(error.message || '').toLowerCase().includes('account_id')) {
+      const errMsg = String(error?.message || '').toLowerCase();
+      if (error && errMsg.includes('column') && errMsg.includes('is_active')) {
         const retry = await supabase
           .from('accounts')
-          .select('id,email')
+          .select('id,account_id,email')
+          .eq('account_id', normalizedAccountId)
+          .eq('password', normalizedPassword)
+          .limit(1);
+        data = retry.data;
+        error = retry.error;
+      } else if (error && errMsg.includes('account_id')) {
+        const retry = await supabase
+          .from('accounts')
+          .select('id,email,is_active')
           .eq('email', normalizedAccountId)
           .eq('password', normalizedPassword)
           .limit(1);
@@ -2031,6 +2111,7 @@ export function AppProvider({ children }) {
       if (error) return { ok: false };
       const found = data?.[0];
       if (!found) return { ok: false };
+      if (Object.prototype.hasOwnProperty.call(found, 'is_active') && found.is_active === false) return { ok: false };
       if (!normalizedUser) return { ok: false };
       if (String(found.id) !== String(normalizedUser.id)) return { ok: false };
       return { ok: true };
@@ -3430,6 +3511,7 @@ export function AppProvider({ children }) {
     accounts,
     fetchAccounts,
     createAccount,
+    setAccountActive,
     deleteAccount,
     updateAccountPassword,
     verifyCredentials,

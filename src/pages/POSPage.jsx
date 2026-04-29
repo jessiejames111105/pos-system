@@ -206,30 +206,44 @@ const POSPage = () => {
   const gcashInvalid = paymentMethod === 'GCash' && gcashReferenceClean.length !== 13;
 
   const availableAddons = useMemo(() => {
-    const pid = selectedProduct?.id;
+    const pid = selectedProduct?.product_id ?? selectedProduct?.id;
     if (!pid) return [];
     const ids = (productAddons || []).filter(r => String(r.product_id) === String(pid)).map(r => r.addon_id);
     return (addons || []).filter(a => ids.some(x => String(x) === String(a.id)));
   }, [addons, productAddons, selectedProduct]);
 
+  const visibleAddons = useMemo(() => {
+    const map = new Map();
+    for (const a of availableAddons || []) {
+      const key = String(a.id ?? a.addon_id);
+      if (!key) continue;
+      map.set(key, a);
+    }
+    for (const picked of customAddons || []) {
+      const key = String(picked.addon_id ?? picked.id ?? '');
+      if (!key || map.has(key)) continue;
+      const meta = (addons || []).find(x => String(x.id) === key);
+      if (meta) map.set(key, meta);
+    }
+    return Array.from(map.values());
+  }, [addons, availableAddons, customAddons]);
+
   const addonOptions = useMemo(() => {
-    const list = (availableAddons.length > 0 ? availableAddons : commonAddons) || [];
-    return list.map(a => ({
+    return (visibleAddons || []).map(a => ({
       value: a.id ?? a.addon_id,
       label: a.name,
       group: 'Add-ons'
     }));
-  }, [availableAddons]);
+  }, [visibleAddons]);
 
   const addonByKey = useMemo(() => {
-    const list = (availableAddons.length > 0 ? availableAddons : commonAddons) || [];
     const map = new Map();
-    for (const a of list) {
+    for (const a of (visibleAddons || [])) {
       const key = String(a.id ?? a.addon_id);
       map.set(key, a);
     }
     return map;
-  }, [availableAddons]);
+  }, [visibleAddons]);
 
   const handleCategorySelect = (cat) => {
     setSelectedCategory(cat);
@@ -382,7 +396,8 @@ const POSPage = () => {
       
       clearCart();
       setIsCheckoutModalOpen(false);
-      setIsCheckoutSuccessOpen(true);
+      setIsCheckoutSuccessOpen(false);
+      setIsReceiptModalOpen(true);
     } finally {
       setIsCheckingOut(false);
     }
@@ -759,28 +774,29 @@ const POSPage = () => {
                     </div>
                   </div>
 
-                  <div className="space-y-4">
-                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wide">
-                      Add-ons
-                    </h4>
-                    <SearchableSelect
-                      value={addonSearchPick}
-                      options={addonOptions}
-                      placeholder="Type add-on name..."
-                      onChange={(v) => {
-                        setAddonSearchPick(v);
-                        const key = String(v || '');
-                        if (!key) return;
-                        const addon = addonByKey.get(key);
-                        if (!addon) return;
-                        const addonId = addon.id ?? addon.addon_id;
-                        const selected = customAddons.find(a => String(a.addon_id) === String(addonId));
-                        const qty = Number(selected?.quantity || 0);
-                        setAddonQuantity(addon, qty > 0 ? qty + 1 : 1);
-                      }}
-                    />
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {(availableAddons.length > 0 ? availableAddons : commonAddons).map(addon => {
+                  {visibleAddons.length > 0 && (
+                    <div className="space-y-4">
+                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wide">
+                        Add-ons
+                      </h4>
+                      <SearchableSelect
+                        value={addonSearchPick}
+                        options={addonOptions}
+                        placeholder="Type add-on name..."
+                        onChange={(v) => {
+                          setAddonSearchPick(v);
+                          const key = String(v || '');
+                          if (!key) return;
+                          const addon = addonByKey.get(key);
+                          if (!addon) return;
+                          const addonId = addon.id ?? addon.addon_id;
+                          const selected = customAddons.find(a => String(a.addon_id) === String(addonId));
+                          const qty = Number(selected?.quantity || 0);
+                          setAddonQuantity(addon, qty > 0 ? qty + 1 : 1);
+                        }}
+                      />
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {visibleAddons.map(addon => {
                         const addonId = addon.id ?? addon.addon_id;
                         const selected = customAddons.find(a => a.addon_id === addonId);
                         const unitPrice = Number(addon.price_per_unit ?? addon.unit_price ?? addon.price ?? 0);
@@ -829,13 +845,9 @@ const POSPage = () => {
                           </div>
                         );
                       })}
-                      {availableAddons.length === 0 && commonAddons.length === 0 && (
-                        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-slate-500 sm:col-span-2">
-                          No add-ons available for this product.
-                        </div>
-                      )}
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
 
                 <button 

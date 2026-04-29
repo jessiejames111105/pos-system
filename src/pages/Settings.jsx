@@ -13,6 +13,19 @@ export default function Settings() {
   const [showPassword, setShowPassword] = useState(false);
   const [pendingNextOpen, setPendingNextOpen] = useState(true);
 
+  const formatSaleItems = (s) => {
+    return (s?.items || []).map(i => {
+      const name = String(i?.name || 'Item');
+      const qty = Number(i?.quantity || 0);
+      const addons = (i?.addons || [])
+        .filter(a => Number(a?.quantity || 0) > 0)
+        .map(a => `${String(a?.name || 'Add-on')} x${Number(a?.quantity || 0)}`)
+        .join(', ');
+      const base = `${name} x${qty}`;
+      return addons ? `${base} [+ ${addons}]` : base;
+    }).join(' | ');
+  };
+
   const isOpen = storeSettings?.is_open !== false;
   const openedAt = useMemo(() => {
     const s = storeSettings?.opened_at ? String(storeSettings.opened_at) : '';
@@ -98,13 +111,14 @@ export default function Settings() {
             },
             {
               title: 'Sales',
-              columns: ['Date/Time', 'Sale ID', 'Cashier', 'Payment', 'Total'],
-              columnStyles: { 4: { halign: 'right' } },
+              columns: ['Date/Time', 'Sale ID', 'Cashier', 'Payment', 'Items', 'Total'],
+              columnStyles: { 5: { halign: 'right' } },
               rows: reportSales.map(s => ([
                 s.created_at ? new Date(s.created_at).toLocaleString() : '',
                 String(s.id ?? ''),
                 String(s.cashier || ''),
                 String(s.payment_method || s.paymentMethod || ''),
+                formatSaleItems(s),
                 pdfFormats.formatPeso(s.total_amount ?? s.total ?? 0)
               ]))
             }

@@ -254,7 +254,10 @@ const Transactions = () => {
             <motion.div
               layout
               key={trx.id}
-              onClick={() => setSelectedTrx(trx)}
+              onClick={() => {
+                setSelectedTrx(trx);
+                setIsReceiptOpen(true);
+              }}
               className={`p-5 rounded-2xl border transition-all cursor-pointer group ${
                 selectedTrx?.id === trx.id 
                 ? 'bg-primary-50 border-primary-200 ring-1 ring-primary-100' 

@@ -52,6 +52,19 @@ const Reports = () => {
     return (ingredients || []).filter(i => Number(i.min_stock || 0) > 0 && Number(i.quantity || 0) <= Number(i.min_stock || 0));
   }, [ingredients]);
 
+  const formatSaleItems = (s) => {
+    return (s?.items || []).map(i => {
+      const name = String(i?.name || 'Item');
+      const qty = Number(i?.quantity || 0);
+      const addons = (i?.addons || [])
+        .filter(a => Number(a?.quantity || 0) > 0)
+        .map(a => `${String(a?.name || 'Add-on')} x${Number(a?.quantity || 0)}`)
+        .join(', ');
+      const base = `${name} x${qty}`;
+      return addons ? `${base} [+ ${addons}]` : base;
+    }).join(' | ');
+  };
+
   const exportPdf = () => {
     downloadStructuredPdf({
       filename: `ZwitBlakTea-report_${from}_to_${to}`,
@@ -70,13 +83,14 @@ const Reports = () => {
         },
         {
           title: 'Sales',
-          columns: ['Sale ID', 'Date', 'Cashier', 'Payment', 'Total'],
-          columnStyles: { 4: { halign: 'right' } },
+          columns: ['Sale ID', 'Date', 'Cashier', 'Payment', 'Items', 'Total'],
+          columnStyles: { 5: { halign: 'right' } },
           rows: filteredSales.map(s => ([
             String(s.id),
             new Date(s.created_at).toLocaleString(),
             String(s.cashier || ''),
             String(s.payment_method || ''),
+            formatSaleItems(s),
             pdfFormats.formatPeso(s.total_amount || 0)
           ]))
         },

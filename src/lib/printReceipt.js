@@ -45,14 +45,11 @@ export const openPrintReceipt = ({ transaction }) => {
 
   const bodyHtml = `
     <div class="card">
-      <div class="row">
-        <div>
-          <h2>Zwit<span style="color:#2563eb">BlakTea</span></h2>
-          <div class="small muted">${escapeHtml(dateText)}</div>
-        </div>
-        <div class="right">
-          <div class="pill">${escapeHtml(String(transaction.paymentMethod || '—'))}</div>
-          ${transaction.id ? `<div class="xs muted" style="margin-top:6px">Trans ID: ${escapeHtml(transaction.id)}</div>` : ''}
+      <div style="text-align:center">
+        <h2 style="margin:0">Zwit<span style="color:#2563eb">BlakTea</span></h2>
+        <div class="small muted">${escapeHtml(dateText)}</div>
+        <div style="margin-top:10px">
+          <span class="pill">${escapeHtml(String(transaction.paymentMethod || '—'))}</span>
         </div>
       </div>
     </div>
@@ -84,4 +81,3 @@ export const openPrintReceipt = ({ transaction }) => {
     bodyHtml
   });
 };
-
