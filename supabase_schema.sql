@@ -242,4 +242,34 @@ UPDATE public.accounts SET is_active = true WHERE is_active IS NULL;
 ALTER TABLE public.accounts ALTER COLUMN is_active SET DEFAULT true;
 ALTER TABLE public.accounts ALTER COLUMN is_active SET NOT NULL;
 
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'product_sizes_product_id_name_key') THEN
+    ALTER TABLE public.product_sizes ADD CONSTRAINT product_sizes_product_id_name_key UNIQUE (product_id, name);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'product_size_ingredients_size_ing_key') THEN
+    ALTER TABLE public.product_size_ingredients ADD CONSTRAINT product_size_ingredients_size_ing_key UNIQUE (product_size_id, ingredient_id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'product_ingredients_product_ing_key') THEN
+    ALTER TABLE public.product_ingredients ADD CONSTRAINT product_ingredients_product_ing_key UNIQUE (product_id, ingredient_id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'product_addons_product_addon_key') THEN
+    ALTER TABLE public.product_addons ADD CONSTRAINT product_addons_product_addon_key UNIQUE (product_id, addon_id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'addon_ingredients_addon_ing_key') THEN
+    ALTER TABLE public.addon_ingredients ADD CONSTRAINT addon_ingredients_addon_ing_key UNIQUE (addon_id, ingredient_id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'transaction_addons_trx_addon_key') THEN
+    ALTER TABLE public.transaction_addons ADD CONSTRAINT transaction_addons_trx_addon_key UNIQUE (transaction_id, addon_id);
+  END IF;
+END $$;
+
+CREATE OR REPLACE VIEW public.sales_report AS
+SELECT
+  (created_at::date) AS sale_date,
+  COUNT(*)::integer AS total_transactions,
+  COALESCE(SUM(total_amount), 0)::numeric AS total_revenue
+FROM public.sales
+GROUP BY created_at::date;
+
 NOTIFY pgrst, 'reload schema';

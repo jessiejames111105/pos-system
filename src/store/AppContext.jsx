@@ -510,6 +510,17 @@ export function AppProvider({ children }) {
     ]);
   };
 
+  const summarizeDbError = (err) => {
+    const msg = String(err?.message || err || '').trim();
+    const low = msg.toLowerCase();
+    if (!msg) return 'unknown error';
+    if (low.includes('timeout') || low.includes('failed to fetch') || low.includes('networkerror')) return 'cannot reach database';
+    if (low.includes('violates row-level security') || low.includes('permission denied')) return 'RLS/permissions blocked';
+    if (low.includes('does not exist') || low.includes('relation') || low.includes('undefined_table')) return 'missing table in database';
+    if (low.includes('schema cache')) return 'schema cache not refreshed';
+    return msg.length > 120 ? msg.slice(0, 120) + '…' : msg;
+  };
+
   const LOGIN_THROTTLE_KEY = 'pos_login_throttle';
   const LOGIN_MAX_ATTEMPTS = 3;
   const LOGIN_LOCK_MS = 3 * 60 * 1000;
@@ -2849,7 +2860,7 @@ export function AppProvider({ children }) {
       addNotification('BOM saved.', 'success');
       await logActivity({ action: `Updated product sizes/BOM: ${productName || productId}`, area: 'product_management', entityType: 'product', entityId: productId });
       return { ok: true };
-    } catch {
+    } catch (err) {
       const base = Date.now();
       const localSizes = normalized.map((s, i) => ({
         id: base + i,
@@ -2882,7 +2893,7 @@ export function AppProvider({ children }) {
         persistProductSizeIngredients(next);
         return next;
       });
-      addNotification('BOM saved locally (database not available).', 'warning');
+      addNotification(`BOM saved locally (cannot save to database: ${summarizeDbError(err)}).`, 'warning');
       await logActivity({ action: `Updated product sizes/BOM: ${productName || productId}`, area: 'product_management', entityType: 'product', entityId: productId });
       return { ok: true, localOnly: true };
     }
@@ -2907,15 +2918,25 @@ export function AppProvider({ children }) {
       return { ok: true };
     }
 
-    const { error: delErr } = await supabase.from('product_ingredients').delete().eq('product_id', productId);
-    if (delErr) return { ok: false };
-    if (rows.length > 0) {
-      const { error: insErr } = await supabase.from('product_ingredients').insert(rows);
-      if (insErr) return { ok: false };
+    try {
+      const { error: delErr } = await withTimeout(supabase.from('product_ingredients').delete().eq('product_id', productId), 5000);
+      if (delErr) throw delErr;
+      if (rows.length > 0) {
+        const { error: insErr } = await withTimeout(supabase.from('product_ingredients').insert(rows), 5000);
+        if (insErr) throw insErr;
+      }
+      await fetchProductIngredients();
+      addNotification('BOM saved.', 'success');
+      return { ok: true };
+    } catch (err) {
+      setProductIngredients(prev => {
+        const next = [...(prev || []).filter(r => String(r.product_id) !== String(productId)), ...rows];
+        persistProductIngredients(next);
+        return next;
+      });
+      addNotification(`BOM saved locally (cannot save to database: ${summarizeDbError(err)}).`, 'warning');
+      return { ok: true, localOnly: true };
     }
-    await fetchProductIngredients();
-    addNotification('BOM saved.', 'success');
-    return { ok: true };
   };
 
   const setAddonBOM = async (addonId, lines) => {
@@ -2938,17 +2959,27 @@ export function AppProvider({ children }) {
       await logActivity({ action: `Updated add-on BOM: ${addonName || addonId}`, area: 'inventory', entityType: 'addon', entityId: addonId });
       return { ok: true };
     }
-
-    const { error: delErr } = await supabase.from('addon_ingredients').delete().eq('addon_id', addonId);
-    if (delErr) return { ok: false };
-    if (rows.length > 0) {
-      const { error: insErr } = await supabase.from('addon_ingredients').insert(rows);
-      if (insErr) return { ok: false };
+    try {
+      const { error: delErr } = await withTimeout(supabase.from('addon_ingredients').delete().eq('addon_id', addonId), 5000);
+      if (delErr) throw delErr;
+      if (rows.length > 0) {
+        const { error: insErr } = await withTimeout(supabase.from('addon_ingredients').insert(rows), 5000);
+        if (insErr) throw insErr;
+      }
+      await fetchAddonIngredients();
+      addNotification('BOM saved.', 'success');
+      await logActivity({ action: `Updated add-on BOM: ${addonName || addonId}`, area: 'inventory', entityType: 'addon', entityId: addonId });
+      return { ok: true };
+    } catch (err) {
+      setAddonIngredients(prev => {
+        const next = [...(prev || []).filter(r => String(r.addon_id) !== String(addonId)), ...rows];
+        persistAddonIngredients(next);
+        return next;
+      });
+      addNotification(`BOM saved locally (cannot save to database: ${summarizeDbError(err)}).`, 'warning');
+      await logActivity({ action: `Updated add-on BOM: ${addonName || addonId}`, area: 'inventory', entityType: 'addon', entityId: addonId });
+      return { ok: true, localOnly: true };
     }
-    await fetchAddonIngredients();
-    addNotification('BOM saved.', 'success');
-    await logActivity({ action: `Updated add-on BOM: ${addonName || addonId}`, area: 'inventory', entityType: 'addon', entityId: addonId });
-    return { ok: true };
   };
 
   const setProductAddonsForProduct = async (productId, addonIds) => {
@@ -3276,7 +3307,7 @@ export function AppProvider({ children }) {
     const cashReceivedNum = normalizedPayment === 'Cash' ? Number(cashReceived || 0) : null;
     const changeAmount = normalizedPayment === 'Cash' ? Math.max(0, Number(cashReceivedNum || 0) - Number(totalAmount || 0)) : null;
 
-    const commitLocalSale = async ({ warn = false } = {}) => {
+    const commitLocalSale = async ({ warn = false, warnError = null } = {}) => {
       const fakeSale = {
         id: Date.now(),
         created_at: new Date().toISOString(),
@@ -3323,15 +3354,16 @@ export function AppProvider({ children }) {
       }
 
       setDailySales(prev => Number(prev || 0) + totalAmount);
-      if (warn) addNotification('Checkout saved locally (database not available).', 'warning');
+      if (warn) {
+        const reason = warnError ? summarizeDbError(warnError) : 'database not available';
+        addNotification(`Checkout saved locally (cannot save to database: ${reason}).`, 'warning');
+      }
       else addNotification('Checkout successful.', 'success');
       await logActivity({ action: `Checkout processed (${normalizedPayment})`, area: 'pos', entityType: 'sale', entityId: fakeSale.id });
       return { ok: true, sale: fakeSale };
     };
 
-    if (!isSupabaseConfigured) {
-      return await commitLocalSale();
-    }
+    if (!isSupabaseConfigured) return await commitLocalSale();
 
     const salePayload = {
       account_id: normalizedUser?.id ?? null,
@@ -3358,7 +3390,7 @@ export function AppProvider({ children }) {
     }
 
     if (saleErr || !saleData?.[0]) {
-        return await commitLocalSale({ warn: true });
+        return await commitLocalSale({ warn: true, warnError: saleErr || new Error('Failed to insert sale') });
     }
 
     const saleId = saleData[0].id;
@@ -3407,7 +3439,7 @@ export function AppProvider({ children }) {
       }
 
       if (trxErr || !trxData?.[0]) {
-          return await commitLocalSale({ warn: true });
+          return await commitLocalSale({ warn: true, warnError: trxErr || new Error('Failed to insert transaction') });
       }
 
       const trxId = trxData[0].id;
@@ -3429,7 +3461,7 @@ export function AppProvider({ children }) {
       if (addonRows.length > 0) {
         const { error: addErr } = await supabase.from('transaction_addons').insert(addonRows);
         if (addErr) {
-            return await commitLocalSale({ warn: true });
+            return await commitLocalSale({ warn: true, warnError: addErr });
         }
       }
     }
@@ -3438,19 +3470,19 @@ export function AppProvider({ children }) {
       for (const [ingredientId, required] of requiredIngredients.entries()) {
         const ok = await adjustIngredientStock({ ingredientId, change: -Number(required), reason: 'sale' });
         if (!ok.ok) {
-            return await commitLocalSale({ warn: true });
+            return await commitLocalSale({ warn: true, warnError: new Error('Failed to adjust ingredient stock') });
         }
       }
       for (const [materialId, required] of requiredMaterials.entries()) {
         const ok = await adjustMaterialStock({ materialId, change: -Number(required), reason: 'sale' });
         if (!ok.ok) {
-          return await commitLocalSale({ warn: true });
+          return await commitLocalSale({ warn: true, warnError: new Error('Failed to adjust material stock') });
         }
       }
       for (const [productId, required] of requiredProductStock.entries()) {
         const ok = await adjustProductStock({ productId, change: -Number(required), reason: 'sale' });
         if (!ok.ok) {
-          return await commitLocalSale({ warn: true });
+          return await commitLocalSale({ warn: true, warnError: new Error('Failed to adjust product stock') });
         }
       }
       await fetchIngredients();
@@ -3459,7 +3491,7 @@ export function AppProvider({ children }) {
       for (const line of cartItems) {
         const ok = await adjustProductStock({ productId: line.product_id, change: -Number(line.quantity), reason: 'sale' });
         if (!ok.ok) {
-            return await commitLocalSale({ warn: true });
+            return await commitLocalSale({ warn: true, warnError: new Error('Failed to adjust product stock') });
         }
       }
     }
@@ -3469,8 +3501,8 @@ export function AppProvider({ children }) {
     await fetchSales();
     addNotification('Checkout successful.', 'success');
     return { ok: true, sale: { id: saleId } };
-    } catch {
-      return await commitLocalSale({ warn: true });
+    } catch (err) {
+      return await commitLocalSale({ warn: true, warnError: err });
     }
   };
 
